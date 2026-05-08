@@ -465,12 +465,44 @@ elements.modeButtons.forEach((button) => {
 
 function bindScannerActionButton(button, action) {
   let handledPointerAction = false;
+  let handledTouchAction = false;
+  let handledMouseAction = false;
+
+  button.setAttribute("tabindex", "-1");
+
+  button.addEventListener("touchstart", (event) => {
+    event.preventDefault();
+  }, { passive: false });
+
+  button.addEventListener("touchend", (event) => {
+    event.preventDefault();
+    handledTouchAction = true;
+    action();
+    window.setTimeout(() => {
+      handledTouchAction = false;
+    }, 0);
+  }, { passive: false });
+
+  button.addEventListener("mousedown", (event) => {
+    event.preventDefault();
+  });
+
+  button.addEventListener("mouseup", (event) => {
+    if (handledTouchAction || handledPointerAction) return;
+    event.preventDefault();
+    handledMouseAction = true;
+    action();
+    window.setTimeout(() => {
+      handledMouseAction = false;
+    }, 0);
+  });
 
   button.addEventListener("pointerdown", (event) => {
     event.preventDefault();
   });
 
   button.addEventListener("pointerup", (event) => {
+    if (handledTouchAction || handledMouseAction) return;
     event.preventDefault();
     handledPointerAction = true;
     action();
@@ -480,6 +512,7 @@ function bindScannerActionButton(button, action) {
   });
 
   button.addEventListener("click", () => {
+    if (handledTouchAction || handledMouseAction) return;
     if (handledPointerAction) return;
     action();
   });
