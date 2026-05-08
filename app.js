@@ -135,7 +135,7 @@ function setScreen(screen) {
 
   if (screen === "verification") {
     render();
-    focusNext();
+    focusNext({ defer: true });
   }
 }
 
@@ -165,18 +165,46 @@ function appendVerificationLog(masterData, slaveData, resultSymbol) {
   }
 }
 
-function focusNext() {
+function applyKeyboardMode(input, isVisible) {
+  input.inputMode = isVisible ? "text" : "none";
+  input.setAttribute("inputmode", isVisible ? "text" : "none");
+}
+
+function focusInput(input, options = {}) {
+  const { showKeyboard = state.isSoftwareKeyboardVisible, forceRefocus = false } = options;
+  applyKeyboardMode(input, showKeyboard);
+  input.disabled = false;
+
+  if (forceRefocus) {
+    input.blur();
+  }
+
+  try {
+    input.focus({ preventScroll: true });
+  } catch {
+    input.focus();
+  }
+  input.setSelectionRange(input.value.length, input.value.length);
+}
+
+function focusNext(options = {}) {
   if (!state.selectedMode || state.resultSymbol === RESULT_MISMATCH) return;
 
-  requestAnimationFrame(() => {
+  const focus = () => {
     if (state.masterData) {
       state.activeInputTarget = "slave";
-      elements.slaveInput.focus();
+      focusInput(elements.slaveInput, options);
     } else {
       state.activeInputTarget = "master";
-      elements.masterInput.focus();
+      focusInput(elements.masterInput, options);
     }
-  });
+  };
+
+  if (options.defer) {
+    requestAnimationFrame(focus);
+  } else {
+    focus();
+  }
 }
 
 function inputEnabled() {
@@ -203,19 +231,25 @@ function submitActiveInput() {
   }
 }
 
+function receiveTextInput(text) {
+  if (!inputEnabled() || !text) return;
+
+  const sanitizedValue = sanitizeScanInput(text);
+  setTargetValue(targetInput().value + sanitizedValue);
+  render();
+
+  if (hasScanTerminator(text)) {
+    submitActiveInput();
+  }
+}
+
 function toggleSoftwareKeyboard() {
   if (!inputEnabled()) return;
   state.isSoftwareKeyboardVisible = !state.isSoftwareKeyboardVisible;
   render();
-
-  requestAnimationFrame(() => {
-    const input = targetInput();
-    if (state.isSoftwareKeyboardVisible) {
-      input.focus();
-      input.setSelectionRange(input.value.length, input.value.length);
-    } else {
-      focusNext();
-    }
+  focusInput(targetInput(), {
+    showKeyboard: state.isSoftwareKeyboardVisible,
+    forceRefocus: true
   });
 }
 
@@ -242,10 +276,8 @@ function render() {
   elements.slaveInput.disabled = !isInputEnabled;
   elements.masterInput.readOnly = false;
   elements.slaveInput.readOnly = false;
-  elements.masterInput.inputMode = state.isSoftwareKeyboardVisible ? "text" : "none";
-  elements.slaveInput.inputMode = state.isSoftwareKeyboardVisible ? "text" : "none";
-  elements.masterInput.setAttribute("inputmode", elements.masterInput.inputMode);
-  elements.slaveInput.setAttribute("inputmode", elements.slaveInput.inputMode);
+  applyKeyboardMode(elements.masterInput, state.isSoftwareKeyboardVisible);
+  applyKeyboardMode(elements.slaveInput, state.isSoftwareKeyboardVisible);
   elements.masterInput.value = state.masterInput;
   elements.slaveInput.value = state.slaveData;
   elements.keyboardToggleButton.disabled = !isInputEnabled;
@@ -261,7 +293,7 @@ function selectMode(mode) {
   state.resultMessage = state.masterData ? STATUS_REGISTERED : STATUS_WAITING;
   state.isSoftwareKeyboardVisible = false;
   render();
-  focusNext();
+  focusNext({ showKeyboard: false, forceRefocus: true });
 }
 
 function registerMasterData(value = state.masterInput) {
@@ -270,7 +302,7 @@ function registerMasterData(value = state.masterInput) {
   state.resultSymbol = RESULT_PENDING;
   state.resultMessage = STATUS_REGISTERED;
   render();
-  focusNext();
+  focusNext({ showKeyboard: false, forceRefocus: true });
 }
 
 function submitSlaveData(value) {
@@ -310,7 +342,7 @@ function compareData(currentSlaveData) {
 
   saveState();
   render();
-  focusNext();
+  focusNext({ showKeyboard: false, forceRefocus: true });
 }
 
 function clearVerification() {
@@ -321,7 +353,7 @@ function clearVerification() {
   state.resultMessage = STATUS_WAITING;
   state.activeInputTarget = "master";
   render();
-  focusNext();
+  focusNext({ showKeyboard: false, forceRefocus: true });
 }
 
 function retryInput() {
@@ -331,7 +363,7 @@ function retryInput() {
   state.resultMessage = STATUS_REGISTERED;
   state.activeInputTarget = "slave";
   render();
-  focusNext();
+  focusNext({ showKeyboard: false, forceRefocus: true });
 }
 
 function confirmAction(message, onConfirm) {
@@ -427,16 +459,31 @@ document.addEventListener("keydown", (event) => {
     const currentValue = targetInput().value;
     setTargetValue(currentValue.slice(0, -1));
     render();
-    focusNext();
     return;
   }
 
   if (event.key.length === 1) {
     event.preventDefault();
-    setTargetValue(targetInput().value + event.key);
-    render();
-    focusNext();
+    receiveTextInput(event.key);
   }
+});
+
+document.addEventListener("paste", (event) => {
+  if (state.screen !== "verification" || state.isSoftwareKeyboardVisible || !inputEnabled()) return;
+  const text = event.clipboardData?.getData("text") || "";
+  if (!text) return;
+
+  event.preventDefault();
+  receiveTextInput(text);
+});
+
+document.addEventListener("beforeinput", (event) => {
+  if (state.screen !== "verification" || state.isSoftwareKeyboardVisible || !inputEnabled()) return;
+  if (event.target === elements.masterInput || event.target === elements.slaveInput) return;
+  if (event.inputType !== "insertText" || !event.data) return;
+
+  event.preventDefault();
+  receiveTextInput(event.data);
 });
 
 elements.masterStart.addEventListener("input", (event) => {
