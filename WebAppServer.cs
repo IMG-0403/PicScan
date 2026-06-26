@@ -52,6 +52,14 @@ namespace HonHidVerifier
         {
             try
             {
+                if (context.Request.HttpMethod == "OPTIONS")
+                {
+                    AddCorsHeaders(context);
+                    context.Response.StatusCode = 204;
+                    context.Response.OutputStream.Close();
+                    return;
+                }
+
                 string path = context.Request.Url.AbsolutePath.ToLowerInvariant();
                 if (path == "/")
                     WriteText(context, LoadHtml(), "text/html; charset=utf-8");
@@ -96,10 +104,18 @@ namespace HonHidVerifier
         private static void WriteText(HttpListenerContext context, string text, string contentType)
         {
             byte[] data = Encoding.UTF8.GetBytes(text);
+            AddCorsHeaders(context);
             context.Response.ContentType = contentType;
             context.Response.ContentLength64 = data.Length;
             context.Response.OutputStream.Write(data, 0, data.Length);
             context.Response.OutputStream.Close();
+        }
+
+        private static void AddCorsHeaders(HttpListenerContext context)
+        {
+            context.Response.Headers["Access-Control-Allow-Origin"] = "*";
+            context.Response.Headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS";
+            context.Response.Headers["Access-Control-Allow-Headers"] = "Content-Type";
         }
 
         private static string StateJson(ScannerState state)

@@ -170,6 +170,9 @@
 
 <script>
 const $ = id => document.getElementById(id);
+const API_BASE = location.origin === "http://127.0.0.1:8765"
+  ? ""
+  : "http://127.0.0.1:8765";
 
 function setBusy(busy) {
   $("detect").disabled = busy;
@@ -197,8 +200,9 @@ function applyState(state) {
 async function api(path, body) {
   setBusy(true);
   try {
+    const method = body ? "POST" : "GET";
     const response = await fetch(path, {
-      method: path === "/api/state" ? "GET" : "POST",
+      method,
       body
     });
     if (!response.ok) {
@@ -221,12 +225,12 @@ async function detect() {
   $("details").textContent = "デバイスを検索しています。";
   $("serial").textContent = "未接続";
   setStatus("デバイス検出中", "wait");
-  const state = await api("/api/detect");
+  const state = await api(API_BASE + "/api/detect");
   applyState(state);
 }
 
 async function settings() {
-  const result = await api("/api/settings");
+  const result = await api(API_BASE + "/api/settings", "");
   $("response").value = result.response || "";
   applyState(result.state);
 }
@@ -238,7 +242,7 @@ async function send() {
     return;
   }
 
-  const result = await api("/api/send", "command=" + encodeURIComponent(command));
+  const result = await api(API_BASE + "/api/send", "command=" + encodeURIComponent(command));
   $("response").value = result.response || "";
   applyState(result.state);
 }
@@ -254,7 +258,7 @@ $("command").addEventListener("keydown", event => {
   }
 });
 
-fetch("/api/state")
+fetch(API_BASE + "/api/state")
   .then(response => response.json())
   .then(applyState)
   .then(detect);

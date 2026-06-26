@@ -59,6 +59,7 @@ namespace HonHidVerifier
                 DisconnectCore();
                 _status = "デバイス検出中";
                 _serialNumber = "未接続";
+                string lastError = "";
 
                 for (int attempt = 0; attempt < 12; attempt++)
                 {
@@ -69,21 +70,42 @@ namespace HonHidVerifier
                         .ThenBy(device => device.Product)
                         .ToList();
 
-                    HidDeviceInfo hid = _deviceList.FirstOrDefault(device =>
-                        device.IsHoneywellCommandInterface);
-                    if (hid != null)
+                    foreach (HidDeviceInfo hid in GetConnectableHidDevices(_deviceList))
                     {
-                        ConnectHidCore(hid);
-                        Thread.Sleep(3000);
-                        _status = "接続中";
-                        return GetStateCore();
+                        try
+                        {
+                            ConnectHidCore(hid);
+                            Thread.Sleep(3000);
+                            _status = "接続中";
+                            return GetStateCore();
+                        }
+                        catch (Exception ex)
+                        {
+                            lastError = hid + ": " + ex.Message;
+                            DisconnectCore();
+                        }
                     }
 
                     string[] ports = HoneywellComPortEnumerator.GetPorts();
-                    if (ports.Length > 0)
+                    if (ports.Length == 0)
                     {
-                        ConnectSerialCore(ports[0]);
-                        return GetStateCore();
+                        string[] allPorts = HoneywellComPortEnumerator.GetAllPorts();
+                        if (allPorts.Length == 1)
+                            ports = allPorts;
+                    }
+
+                    foreach (string port in ports)
+                    {
+                        try
+                        {
+                            ConnectSerialCore(port);
+                            return GetStateCore();
+                        }
+                        catch (Exception ex)
+                        {
+                            lastError = port + ": " + ex.Message;
+                            DisconnectCore();
+                        }
                     }
 
                     _status = "デバイス再接続待機中";
@@ -93,7 +115,7 @@ namespace HonHidVerifier
                 _status = "デバイスが見つかりません";
                 _deviceName = "";
                 _connectionType = "";
-                _deviceDetails = "バーコードリーダーを接続して「再検出」をクリックしてください。";
+                _deviceDetails = BuildDetectionDetails(lastError);
                 _serialNumber = "未接続";
                 return GetStateCore();
             }
@@ -335,6 +357,60 @@ namespace HonHidVerifier
                 SerialNumber = _serialNumber,
                 ConnectionType = _connectionType
             };
+        }
+
+        private static IEnumerable<HidDeviceInfo> GetConnectableHidDevices(
+            IEnumerable<HidDeviceInfo> devices)
+        {
+            return devices
+                .Where(device => device.SupportsCommandOutput &&
+                    (device.IsHoneywellCommandInterface || device.IsLikelyScanner))
+                .OrderByDescending(device => device.IsHoneywellCommandInterface)
+                .ThenByDescending(device => device.IsHoneywellHidPosInterface)
+                .ThenByDescending(device => device.IsHoneywellRemoteInterface)
+                .ThenByDescending(device => device.VendorId == 0x0C2E || device.VendorId == 0x0536)
+                .ThenBy(device => device.Product);
+        }
+
+        private string BuildDetectionDetails(string lastError)
+        {
+            var details = new StringBuilder();
+            details.AppendLine("接続できるバーコードリーダーが見つかりませんでした。");
+            details.AppendLine("下の候補一覧を確認してください。");
+
+            if (!string.IsNullOrWhiteSpace(lastError))
+                details.AppendLine("最後の接続エラー: " + lastError);
+
+            string[] honeywellPorts = HoneywellComPortEnumerator.GetPorts();
+            string[] allPorts = HoneywellComPortEnumerator.GetAllPorts();
+            details.AppendLine();
+            details.AppendLine("Honeywell候補COM: " +
+                (honeywellPorts.Length == 0 ? "(なし)" : string.Join(", ", honeywellPorts)));
+            details.AppendLine("Windows上のCOM: " +
+                (allPorts.Length == 0 ? "(なし)" : string.Join(", ", allPorts)));
+
+            details.AppendLine();
+            details.AppendLine("HID候補:");
+            if (_deviceList.Count == 0)
+            {
+                details.AppendLine("(なし)");
+            }
+            else
+            {
+                foreach (HidDeviceInfo device in _deviceList.Take(20))
+                {
+                    details.AppendLine(string.Format(
+                        "- {0} / Mfr:{1} / Out:{2} Feature:{3}",
+                        device, EmptyAsUnknown(device.Manufacturer),
+                        device.OutputReportLength, device.FeatureReportLength));
+                }
+                if (_deviceList.Count > 20)
+                    details.AppendLine("...ほか " + (_deviceList.Count - 20) + " 件");
+            }
+
+            details.AppendLine();
+            details.AppendLine("HID Keyboardモードだけで表示される場合、Windowsにはキーボードとして見えてもメニューコマンド送信はできないことがあります。その場合はスキャナ側をUSB-COMまたはHID POS/REMに切り替えてください。");
+            return details.ToString();
         }
 
         private void DisconnectCore()

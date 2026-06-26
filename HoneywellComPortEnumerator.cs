@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO.Ports;
 using Microsoft.Win32;
 
 namespace HonHidVerifier
@@ -16,6 +17,13 @@ namespace HonHidVerifier
             return result;
         }
 
+        public static string[] GetAllPorts()
+        {
+            string[] ports = SerialPort.GetPortNames();
+            Array.Sort(ports, StringComparer.OrdinalIgnoreCase);
+            return ports;
+        }
+
         private static void AddSerialCommPorts(SortedSet<string> ports)
         {
             using (RegistryKey key = Registry.LocalMachine.OpenSubKey(
@@ -24,7 +32,11 @@ namespace HonHidVerifier
                 if (key == null)
                     return;
 
-                foreach (string name in key.GetValueNames())
+                string[] valueNames;
+                try { valueNames = key.GetValueNames(); }
+                catch { return; }
+
+                foreach (string name in valueNames)
                 {
                     if (!IsHoneywellText(name))
                         continue;
@@ -48,7 +60,7 @@ namespace HonHidVerifier
             SortedSet<string> ports)
         {
             string text = inheritedText + " " + KeyText(key);
-            using (RegistryKey parameters = key.OpenSubKey("Device Parameters"))
+            using (RegistryKey parameters = OpenSubKeySafe(key, "Device Parameters"))
             {
                 if (parameters != null)
                 {
@@ -58,9 +70,13 @@ namespace HonHidVerifier
                 }
             }
 
-            foreach (string subKeyName in key.GetSubKeyNames())
+            string[] subKeyNames;
+            try { subKeyNames = key.GetSubKeyNames(); }
+            catch { return; }
+
+            foreach (string subKeyName in subKeyNames)
             {
-                using (RegistryKey subKey = key.OpenSubKey(subKeyName))
+                using (RegistryKey subKey = OpenSubKeySafe(key, subKeyName))
                 {
                     if (subKey != null)
                         ScanEnumKey(subKey, text + " " + subKeyName, ports);
@@ -71,15 +87,27 @@ namespace HonHidVerifier
         private static string KeyText(RegistryKey key)
         {
             var text = "";
-            foreach (string name in key.GetValueNames())
+            string[] valueNames;
+            try { valueNames = key.GetValueNames(); }
+            catch { return text; }
+
+            foreach (string name in valueNames)
             {
-                object value = key.GetValue(name);
+                object value;
+                try { value = key.GetValue(name); }
+                catch { continue; }
                 if (value is string)
                     text += " " + name + " " + (string)value;
                 else if (value is string[])
                     text += " " + name + " " + string.Join(" ", (string[])value);
             }
             return text;
+        }
+
+        private static RegistryKey OpenSubKeySafe(RegistryKey key, string name)
+        {
+            try { return key.OpenSubKey(name); }
+            catch { return null; }
         }
 
         private static bool IsHoneywellText(string value)
