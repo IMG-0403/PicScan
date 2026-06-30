@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="ja">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PicScan</title>
+    <style>
+        :root {
+            color-scheme: light;
+            font-family: "Segoe UI", "Yu Gothic UI", "Meiryo", sans-serif;
+            background: #f4f6f8;
+            color: #17212b;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+        }
+
+        .appShell {
+            width: min(1040px, calc(100% - 32px));
+            margin: 0 auto;
+            padding: 32px 0 48px;
+        }
+
+        .topBar {
+            margin-bottom: 24px;
+        }
+
+        .label {
+            margin: 0 0 6px;
+            color: #5b6b7b;
+            font-size: 0.82rem;
+            font-weight: 700;
+            letter-spacing: 0;
+        }
+
+        h1,
+        h2 {
+            margin: 0;
+            letter-spacing: 0;
+        }
+
+        h1 {
+            font-size: 2rem;
+        }
+
+        h2 {
+            font-size: 1.25rem;
+            line-height: 1.35;
+        }
+
+        .searchPanel,
+        .result,
+        .emptyState {
+            background: #ffffff;
+            border: 1px solid #dce3ea;
+            border-radius: 8px;
+            box-shadow: 0 16px 38px rgba(32, 43, 54, 0.08);
+        }
+
+        .searchPanel {
+            padding: 18px;
+            margin-bottom: 18px;
+        }
+
+        .searchPanel label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 700;
+        }
+
+        .searchRow {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) 112px;
+            gap: 10px;
+        }
+
+        input,
+        button {
+            min-height: 44px;
+            border-radius: 6px;
+            font: inherit;
+        }
+
+        input {
+            width: 100%;
+            border: 1px solid #c7d1db;
+            padding: 0 13px;
+            background: #fbfcfd;
+        }
+
+        input:focus {
+            border-color: #2274a5;
+            box-shadow: 0 0 0 3px rgba(34, 116, 165, 0.18);
+            outline: none;
+        }
+
+        button,
+        .iconButton {
+            border: 0;
+            background: #2274a5;
+            color: #ffffff;
+            cursor: pointer;
+            font-weight: 700;
+        }
+
+        button:hover,
+        .iconButton:hover {
+            background: #185a82;
+        }
+
+        .result {
+            display: none;
+            overflow: hidden;
+        }
+
+        .result.isVisible {
+            display: block;
+        }
+
+        .resultHeader {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            padding: 18px;
+            border-bottom: 1px solid #dce3ea;
+        }
+
+        .iconButton {
+            display: inline-grid;
+            place-items: center;
+            flex: 0 0 40px;
+            width: 40px;
+            height: 40px;
+            border-radius: 6px;
+            text-decoration: none;
+            font-size: 1.25rem;
+        }
+
+        .imageFrame {
+            display: grid;
+            place-items: center;
+            min-height: 420px;
+            padding: 20px;
+            background:
+                linear-gradient(45deg, #eef2f6 25%, transparent 25%),
+                linear-gradient(-45deg, #eef2f6 25%, transparent 25%),
+                linear-gradient(45deg, transparent 75%, #eef2f6 75%),
+                linear-gradient(-45deg, transparent 75%, #eef2f6 75%);
+            background-color: #ffffff;
+            background-position: 0 0, 0 10px, 10px -10px, -10px 0;
+            background-size: 20px 20px;
+        }
+
+        .imageFrame img {
+            display: block;
+            max-width: 100%;
+            max-height: 70vh;
+            object-fit: contain;
+        }
+
+        .emptyState {
+            padding: 42px 24px;
+            text-align: center;
+        }
+
+        .emptyState.isHidden {
+            display: none;
+        }
+
+        .emptyState p:last-child {
+            margin: 10px 0 0;
+            color: #5b6b7b;
+        }
+
+        code {
+            padding: 2px 5px;
+            border-radius: 4px;
+            background: #eef2f6;
+        }
+
+        @media (max-width: 640px) {
+            .appShell {
+                width: min(100% - 20px, 1040px);
+                padding-top: 18px;
+            }
+
+            .searchRow {
+                grid-template-columns: 1fr;
+            }
+
+            .imageFrame {
+                min-height: 300px;
+                padding: 12px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <main class="appShell">
+        <header class="topBar">
+            <p class="label">画像検索</p>
+            <h1>PicScan</h1>
+        </header>
+
+        <form class="searchPanel" id="searchForm">
+            <label for="model">型番</label>
+            <div class="searchRow">
+                <input id="model" name="model" placeholder="型番または画像ファイル名" autocomplete="off" autofocus>
+                <button type="submit">検索</button>
+            </div>
+        </form>
+
+        <section class="result" id="result">
+            <div class="resultHeader">
+                <div>
+                    <p class="label">検索結果</p>
+                    <h2 id="resultTitle"></h2>
+                </div>
+                <a class="iconButton" id="downloadLink" href="#" download title="ダウンロード" aria-label="ダウンロード">↓</a>
+            </div>
+            <div class="imageFrame">
+                <img id="resultImage" src="" alt="">
+            </div>
+        </section>
+
+        <section class="emptyState" id="message">
+            <p class="label">PicScan</p>
+            <h2 id="messageTitle">型番を入力すると、登録済み画像を表示します</h2>
+            <p id="messageText">画像ファイルは <code>images</code> フォルダに配置してください。</p>
+        </section>
+    </main>
+
+    <script>
+        const form = document.getElementById("searchForm");
+        const modelInput = document.getElementById("model");
+        const result = document.getElementById("result");
+        const resultTitle = document.getElementById("resultTitle");
+        const resultImage = document.getElementById("resultImage");
+        const downloadLink = document.getElementById("downloadLink");
+        const message = document.getElementById("message");
+        const messageTitle = document.getElementById("messageTitle");
+        const messageText = document.getElementById("messageText");
+        const extensions = ["", ".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".svg"];
+
+        function encodePathSegment(value) {
+            return value.split("/").map(encodeURIComponent).join("/");
+        }
+
+        function buildCandidates(modelNo) {
+            const hasExtension = /\.[a-z0-9]+$/i.test(modelNo);
+            const targets = hasExtension ? [modelNo] : extensions.map((extension) => `${modelNo}${extension}`);
+            return [...new Set(targets)].map((target) => ({
+                name: target,
+                url: `images/${encodePathSegment(target)}`
+            }));
+        }
+
+        function showMessage(title, text) {
+            result.classList.remove("isVisible");
+            message.classList.remove("isHidden");
+            messageTitle.textContent = title;
+            messageText.textContent = text;
+        }
+
+        function showImage(candidate) {
+            resultTitle.textContent = candidate.name;
+            resultImage.alt = candidate.name;
+            resultImage.src = candidate.url;
+            downloadLink.href = candidate.url;
+            downloadLink.download = candidate.name;
+            message.classList.add("isHidden");
+            result.classList.add("isVisible");
+        }
+
+        function tryLoad(candidates, index = 0) {
+            if (index >= candidates.length) {
+                showMessage(
+                    "該当する画像が見つかりません",
+                    "入力した型番と同じ名前の画像ファイルが images フォルダにあるか確認してください。"
+                );
+                return;
+            }
+
+            const candidate = candidates[index];
+            const probe = new Image();
+            probe.onload = () => showImage(candidate);
+            probe.onerror = () => tryLoad(candidates, index + 1);
+            probe.src = `${candidate.url}?v=${Date.now()}`;
+        }
+
+        function search(modelNo) {
+            const trimmed = modelNo.trim();
+            if (!trimmed) {
+                showMessage("型番を入力すると、登録済み画像を表示します", "画像ファイルは images フォルダに配置してください。");
+                return;
+            }
+
+            const params = new URLSearchParams(window.location.search);
+            params.set("model", trimmed);
+            window.history.replaceState(null, "", `${window.location.pathname}?${params.toString()}`);
+            tryLoad(buildCandidates(trimmed));
+        }
+
+        form.addEventListener("submit", (event) => {
+            event.preventDefault();
+            search(modelInput.value);
+        });
+
+        const initialModel = new URLSearchParams(window.location.search).get("model");
+        if (initialModel) {
+            modelInput.value = initialModel;
+            search(initialModel);
+        }
+    </script>
+</body>
+</html>

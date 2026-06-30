@@ -1,0 +1,438 @@
+<!doctype html>
+<html lang="ja">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PicScan Admin</title>
+    <style>
+        :root {
+            color-scheme: light;
+            font-family: "Segoe UI", "Yu Gothic UI", "Meiryo", sans-serif;
+            background: #f4f6f8;
+            color: #17212b;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+        }
+
+        .appShell {
+            width: min(1080px, calc(100% - 32px));
+            margin: 0 auto;
+            padding: 32px 0 48px;
+        }
+
+        .topBar {
+            display: flex;
+            align-items: end;
+            justify-content: space-between;
+            gap: 16px;
+            margin-bottom: 22px;
+        }
+
+        .topBar a {
+            color: #2274a5;
+            font-weight: 700;
+            text-decoration: none;
+        }
+
+        .label {
+            margin: 0 0 6px;
+            color: #5b6b7b;
+            font-size: 0.82rem;
+            font-weight: 700;
+            letter-spacing: 0;
+        }
+
+        h1,
+        h2 {
+            margin: 0;
+            letter-spacing: 0;
+        }
+
+        h1 {
+            font-size: 2rem;
+        }
+
+        h2 {
+            font-size: 1.18rem;
+            line-height: 1.35;
+        }
+
+        .panel,
+        .statusBox {
+            background: #ffffff;
+            border: 1px solid #dce3ea;
+            border-radius: 8px;
+            box-shadow: 0 16px 38px rgba(32, 43, 54, 0.08);
+        }
+
+        .panel {
+            padding: 18px;
+            margin-bottom: 18px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 14px;
+        }
+
+        .field {
+            display: grid;
+            gap: 8px;
+        }
+
+        .field.full {
+            grid-column: 1 / -1;
+        }
+
+        label {
+            font-weight: 700;
+        }
+
+        input,
+        button {
+            min-height: 44px;
+            border-radius: 6px;
+            font: inherit;
+        }
+
+        input {
+            width: 100%;
+            border: 1px solid #c7d1db;
+            padding: 0 13px;
+            background: #fbfcfd;
+        }
+
+        input[type="file"] {
+            padding: 10px 13px;
+        }
+
+        input:focus {
+            border-color: #2274a5;
+            box-shadow: 0 0 0 3px rgba(34, 116, 165, 0.18);
+            outline: none;
+        }
+
+        .actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 14px;
+        }
+
+        button {
+            border: 0;
+            padding: 0 16px;
+            background: #2274a5;
+            color: #ffffff;
+            cursor: pointer;
+            font-weight: 700;
+        }
+
+        button:disabled {
+            cursor: not-allowed;
+            opacity: 0.55;
+        }
+
+        .statusBox {
+            padding: 14px 16px;
+            color: #334455;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        code {
+            padding: 2px 5px;
+            border-radius: 4px;
+            background: #eef2f6;
+        }
+
+        @media (max-width: 720px) {
+            .appShell {
+                width: min(100% - 20px, 1080px);
+                padding-top: 18px;
+            }
+
+            .topBar {
+                align-items: start;
+                flex-direction: column;
+            }
+
+            .grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <main class="appShell">
+        <header class="topBar">
+            <div>
+                <p class="label">管理者画面</p>
+                <h1>PicScan Admin</h1>
+            </div>
+            <a href="index.html">検索ページへ</a>
+        </header>
+
+        <section class="panel" id="loginPanel">
+            <p class="label">管理者ログイン</p>
+            <div class="grid">
+                <div class="field">
+                    <label for="account">アカウント</label>
+                    <input id="account" autocomplete="username" placeholder="アカウント">
+                </div>
+                <div class="field">
+                    <label for="password">パスワード</label>
+                    <input id="password" type="password" autocomplete="current-password" placeholder="パスワード">
+                </div>
+            </div>
+            <div class="actions">
+                <button id="loginButton" type="button">ログイン</button>
+            </div>
+        </section>
+
+        <section class="panel hidden" id="adminPanel">
+            <p class="label">GitHub設定</p>
+            <div class="grid">
+                <div class="field">
+                    <label for="owner">Owner / Organization</label>
+                    <input id="owner" autocomplete="organization" placeholder="例: your-name">
+                </div>
+                <div class="field">
+                    <label for="repo">Repository</label>
+                    <input id="repo" autocomplete="off" placeholder="例: picscan">
+                </div>
+                <div class="field">
+                    <label for="branch">Branch</label>
+                    <input id="branch" autocomplete="off" value="main">
+                </div>
+                <div class="field">
+                    <label for="token">GitHub Token</label>
+                    <input id="token" type="password" autocomplete="off" placeholder="Contents Read and write">
+                </div>
+            </div>
+
+            <p class="label">画像登録</p>
+            <div class="grid">
+                <div class="field">
+                    <label for="model">型番</label>
+                    <input id="model" autocomplete="off" placeholder="例: ABC-123">
+                </div>
+                <div class="field">
+                    <label for="photo">画像</label>
+                    <input id="photo" type="file" accept="image/*" capture="environment">
+                </div>
+            </div>
+            <div class="actions">
+                <button id="uploadButton" type="button">画像を保存</button>
+            </div>
+        </section>
+
+        <section class="statusBox" id="status">ログインしてください。</section>
+    </main>
+
+    <script>
+        const accountInput = document.getElementById("account");
+        const passwordInput = document.getElementById("password");
+        const ownerInput = document.getElementById("owner");
+        const repoInput = document.getElementById("repo");
+        const branchInput = document.getElementById("branch");
+        const tokenInput = document.getElementById("token");
+        const modelInput = document.getElementById("model");
+        const photoInput = document.getElementById("photo");
+        const loginPanel = document.getElementById("loginPanel");
+        const adminPanel = document.getElementById("adminPanel");
+        const statusBox = document.getElementById("status");
+        const loginButton = document.getElementById("loginButton");
+        const uploadButton = document.getElementById("uploadButton");
+
+        const adminAccount = "img";
+        const adminPassword = "5381";
+        let session = null;
+
+        ownerInput.value = localStorage.getItem("picscanOwner") || "";
+        repoInput.value = localStorage.getItem("picscanRepo") || "";
+        branchInput.value = localStorage.getItem("picscanBranch") || "main";
+
+        function setStatus(message) {
+            statusBox.textContent = message;
+        }
+
+        function setBusy(isBusy) {
+            [loginButton, uploadButton].forEach((button) => {
+                button.disabled = isBusy;
+            });
+        }
+
+        function normalizeFileName(value, fallbackExtension = ".jpg") {
+            const clean = value.trim().replaceAll("\\", "/").split("/").pop();
+            if (!clean) {
+                return "";
+            }
+            return /\.[a-z0-9]+$/i.test(clean) ? clean : `${clean}${fallbackExtension}`;
+        }
+
+        function buildGitHubSession() {
+            return {
+                owner: ownerInput.value.trim(),
+                repo: repoInput.value.trim(),
+                branch: branchInput.value.trim() || "main",
+                token: tokenInput.value.trim()
+            };
+        }
+
+        function saveGitHubSettings() {
+            localStorage.setItem("picscanOwner", ownerInput.value.trim());
+            localStorage.setItem("picscanRepo", repoInput.value.trim());
+            localStorage.setItem("picscanBranch", branchInput.value.trim() || "main");
+        }
+
+        function ensureGitHubSession() {
+            session = buildGitHubSession();
+            if (!session.owner || !session.repo || !session.token) {
+                throw new Error("GitHub設定の Owner、Repository、GitHub Tokenを入力してください。");
+            }
+            saveGitHubSettings();
+        }
+
+        function githubHeaders() {
+            return {
+                "Accept": "application/vnd.github+json",
+                "Authorization": `Bearer ${session.token}`,
+                "X-GitHub-Api-Version": "2022-11-28"
+            };
+        }
+
+        function contentUrl(fileName, includeRef = true) {
+            const encodedName = encodeURIComponent(fileName).replaceAll("%2F", "/");
+            const base = `https://api.github.com/repos/${session.owner}/${session.repo}/contents/images/${encodedName}`;
+            return includeRef ? `${base}?ref=${encodeURIComponent(session.branch)}` : base;
+        }
+
+        async function githubRequest(url, options = {}) {
+            const response = await fetch(url, options);
+            const text = await response.text();
+            const body = text ? JSON.parse(text) : null;
+            if (!response.ok) {
+                const message = body && body.message ? body.message : text;
+                throw new Error(`GitHub API error ${response.status}: ${message}`);
+            }
+            return body;
+        }
+
+        async function getImage(fileName) {
+            const response = await fetch(contentUrl(fileName), {
+                headers: githubHeaders()
+            });
+            if (response.status === 404) {
+                return null;
+            }
+            const body = await response.json();
+            if (!response.ok) {
+                throw new Error(`GitHub API error ${response.status}: ${body.message || "request failed"}`);
+            }
+            const binary = atob(body.content.replace(/\n/g, ""));
+            const bytes = new Uint8Array(binary.length);
+            for (let index = 0; index < binary.length; index += 1) {
+                bytes[index] = binary.charCodeAt(index);
+            }
+            return {
+                name: body.name,
+                sha: body.sha,
+                bytes,
+                downloadUrl: body.download_url
+            };
+        }
+
+        function bytesToBase64(bytes) {
+            let binary = "";
+            const chunkSize = 8192;
+            for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+                const chunk = bytes.slice(offset, offset + chunkSize);
+                binary += String.fromCharCode(...chunk);
+            }
+            return btoa(binary);
+        }
+
+        async function uploadImage(fileName, bytes) {
+            const existing = await getImage(fileName);
+            const payload = {
+                message: `Upload ${fileName}`,
+                branch: session.branch,
+                content: bytesToBase64(bytes)
+            };
+            if (existing) {
+                payload.sha = existing.sha;
+            }
+            await githubRequest(contentUrl(fileName, false), {
+                method: "PUT",
+                headers: {
+                    ...githubHeaders(),
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify(payload)
+            });
+        }
+
+        loginButton.addEventListener("click", () => {
+            const account = accountInput.value.trim();
+            const password = passwordInput.value;
+            if (account !== adminAccount || password !== adminPassword) {
+                setStatus("アカウントまたはパスワードが違います。");
+                return;
+            }
+
+            session = buildGitHubSession();
+            passwordInput.value = "";
+            loginPanel.classList.add("hidden");
+            adminPanel.classList.remove("hidden");
+            setStatus(session.owner && session.repo ? `ログインしました: ${session.owner}/${session.repo}` : "ログインしました。GitHub設定を入力してください。");
+        });
+
+        [accountInput, passwordInput].forEach((input) => {
+            input.addEventListener("keydown", (event) => {
+                if (event.key === "Enter") {
+                    loginButton.click();
+                }
+            });
+        });
+
+        uploadButton.addEventListener("click", async () => {
+            const modelNo = modelInput.value.trim();
+            const file = photoInput.files[0];
+            if (!modelNo) {
+                setStatus("型番を入力してください。");
+                return;
+            }
+            if (!file) {
+                setStatus("画像ファイルを選択してください。");
+                return;
+            }
+
+            const extension = file.name.match(/\.[a-z0-9]+$/i)?.[0] || ".jpg";
+            const fileName = normalizeFileName(modelNo, extension);
+            try {
+                ensureGitHubSession();
+                setBusy(true);
+                setStatus(`保存中: images/${fileName}`);
+                const bytes = new Uint8Array(await file.arrayBuffer());
+                await uploadImage(fileName, bytes);
+                setStatus(`保存しました: images/${fileName}`);
+            } catch (error) {
+                setStatus(error.message);
+            } finally {
+                setBusy(false);
+            }
+        });
+    </script>
+</body>
+</html>
