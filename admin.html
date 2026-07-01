@@ -852,16 +852,32 @@
         }
 
         function buildGitHubSession() {
+            const token = tokenInput.value.trim() || (session && session.token) || "";
             return {
+                owner: defaultOwner,
+                repo: defaultRepo,
+                branch: localStorage.getItem("picscanBranch") || "main",
+                token
+            };
+        }
+
+        function ensureGitHubSession() {
+            if (session && session.token) {
+                return;
+            }
+            session = buildGitHubSession();
+            if (!session.token) {
+                throw new Error("GitHub Tokenを入力してください。");
+            }
+        }
+
+        function startGitHubSession() {
+            session = {
                 owner: defaultOwner,
                 repo: defaultRepo,
                 branch: localStorage.getItem("picscanBranch") || "main",
                 token: tokenInput.value.trim()
             };
-        }
-
-        function ensureGitHubSession() {
-            session = buildGitHubSession();
             if (!session.token) {
                 throw new Error("GitHub Tokenを入力してください。");
             }
@@ -1489,7 +1505,7 @@
 
         loginButton.addEventListener("click", async () => {
             try {
-                ensureGitHubSession();
+                startGitHubSession();
                 setBusy(true);
                 setStatus("GitHub接続確認中...");
                 const branch = await resolveGitHubBranch();
