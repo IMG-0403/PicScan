@@ -122,15 +122,26 @@
         }
 
         .resultHeader {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 18px;
             padding: 18px;
             border-bottom: 1px solid #dce3ea;
         }
 
-        .resultTitleRow {
-            display: flex;
-            align-items: baseline;
-            flex-wrap: wrap;
-            gap: 10px 14px;
+        .resultComment {
+            max-width: min(54ch, 52%);
+            margin: 0;
+            color: #334455;
+            line-height: 1.55;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+            text-align: right;
+        }
+
+        .resultComment.isHidden {
+            display: none;
         }
 
         .imageGrid {
@@ -320,6 +331,16 @@
                 grid-template-columns: 1fr;
                 padding: 12px;
             }
+
+            .resultHeader {
+                display: block;
+            }
+
+            .resultComment {
+                max-width: none;
+                margin-top: 10px;
+                text-align: left;
+            }
         }
     </style>
 </head>
@@ -344,6 +365,7 @@
                     <p class="label">検索結果</p>
                     <h2 id="resultTitle"></h2>
                 </div>
+                <p class="resultComment isHidden" id="resultComment"></p>
             </div>
             <div class="imageGrid" id="imageGrid"></div>
         </section>
@@ -374,6 +396,7 @@
         const modelInput = document.getElementById("model");
         const result = document.getElementById("result");
         const resultTitle = document.getElementById("resultTitle");
+        const resultComment = document.getElementById("resultComment");
         const imageGrid = document.getElementById("imageGrid");
         const message = document.getElementById("message");
         const messageModel = document.getElementById("messageModel");
@@ -498,6 +521,12 @@
 
         function showRecord(record, comments, searchedModel = "") {
             resultTitle.textContent = record.name;
+            const recordComments = [...new Set(record.images
+                .map((image) => image.comment || readComment(comments, image.file))
+                .map((comment) => comment.trim())
+                .filter(Boolean))];
+            resultComment.textContent = recordComments.join("\n");
+            resultComment.classList.toggle("isHidden", !recordComments.length);
             imageGrid.textContent = "";
             record.images.slice(0, 6).forEach((image) => {
                 const item = document.createElement("article");
@@ -522,7 +551,6 @@
                 button.appendChild(frame);
                 button.addEventListener("click", () => openLightbox(img.alt, src, comment.textContent));
                 item.appendChild(button);
-                item.appendChild(comment);
                 imageGrid.appendChild(item);
             });
             message.classList.add("isHidden");

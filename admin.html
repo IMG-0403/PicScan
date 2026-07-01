@@ -688,7 +688,10 @@
                 frame.className = "recordImageFrame";
 
                 const img = document.createElement("img");
-                const urls = entryFile === currentName && currentObjectUrl
+                const canUseCurrentObjectUrl = entryFile === currentName
+                    && currentObjectUrl
+                    && normalizeImageFilePath(resultImage.alt) === entryFile;
+                const urls = canUseCurrentObjectUrl
                     ? [currentObjectUrl, ...recordImageUrls(recordName, entryFile)]
                     : recordImageUrls(recordName, entryFile);
                 setImageWithFallback(img, urls);
