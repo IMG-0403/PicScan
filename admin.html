@@ -590,6 +590,9 @@
             imageList.querySelectorAll("button").forEach((button) => {
                 button.disabled = isBusy;
             });
+            recordImageGrid.querySelectorAll("button").forEach((button) => {
+                button.disabled = isBusy;
+            });
             if (!isBusy) {
                 updateResultActions();
             }
@@ -815,8 +818,11 @@
                 removeButton.className = "danger";
                 removeButton.textContent = "削除";
                 removeButton.addEventListener("click", async () => {
-                    await selectRecordImage(image, entry);
-                    deleteButton.click();
+                    const targetFile = normalizeImageFilePath(entry.file);
+                    if (!confirm(`images/${targetFile} を削除しますか？`)) {
+                        return;
+                    }
+                    await deleteRecordImage(image, entry);
                 });
 
                 actions.appendChild(upButton);
@@ -2079,21 +2085,15 @@
             }
         });
 
-        deleteButton.addEventListener("click", async () => {
-            if (!currentImage) {
-                return;
-            }
-            if (!confirm(`images/${currentImage.name} を削除しますか？`)) {
-                return;
-            }
-
+        async function deleteRecordImage(recordImage, entry) {
+            const targetFile = normalizeImageFilePath(entry && entry.file ? entry.file : recordImage.name);
+            const recordName = recordImage.recordName || modelInput.value.trim() || recordImage.name;
             try {
                 ensureGitHubSession();
                 setBusy(true);
-                setStatus(`削除中: images/${currentImage.name}`);
+                setStatus(`GitHubから削除中: images/${targetFile}`);
                 let imageForDelete = null;
-                const recordName = currentImage.recordName || modelInput.value.trim();
-                for (const candidate of recordImageFileCandidates(recordName, currentImage.name)) {
+                for (const candidate of recordImageFileCandidates(recordName, targetFile)) {
                     imageForDelete = await getImage(candidate);
                     if (imageForDelete) {
                         break;
@@ -2109,7 +2109,8 @@
                 let nextRecord = null;
                 let nextEntry = null;
                 const record = findRecordByImage(catalog, imageForDelete.name)
-                    || findRecordByImage(catalog, currentImage.name);
+                    || findRecordByImage(catalog, targetFile)
+                    || findRecordByName(catalog, recordName);
                 if (record) {
                     const removedIndex = record.images.findIndex((image) => recordImageMatches(record.name, image.file, imageForDelete.name));
                     record.images = record.images.filter((image) => !recordImageMatches(record.name, image.file, imageForDelete.name));
@@ -2138,12 +2139,22 @@
                     clearPreview();
                 }
                 await refreshImageList();
-                setStatus("選択中のファイルを削除しました。");
+                setStatus(`GitHubと登録データから削除しました: images/${imageForDelete.name}`);
             } catch (error) {
-                setStatus(error.message);
+                setStatus(`画像の削除に失敗しました: ${error.message}`);
             } finally {
                 setBusy(false);
             }
+        }
+
+        deleteButton.addEventListener("click", async () => {
+            if (!currentImage) {
+                return;
+            }
+            if (!confirm(`images/${currentImage.name} を削除しますか？`)) {
+                return;
+            }
+            await deleteRecordImage(currentImage, { file: currentImage.name });
         });
 
         refreshListButton.addEventListener("click", async () => {
