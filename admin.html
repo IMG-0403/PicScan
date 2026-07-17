@@ -266,6 +266,17 @@
             overflow-wrap: anywhere;
         }
 
+        .emptyDataMessage {
+            grid-column: 1 / -1;
+            margin: 0;
+            padding: 24px 16px;
+            border: 1px dashed #b8c4cf;
+            border-radius: 8px;
+            background: #f7f9fb;
+            color: #5b6b7b;
+            text-align: center;
+        }
+
         .imageComment {
             margin: 0;
             padding: 12px 14px;
@@ -492,6 +503,7 @@
 
             <div class="listPanel">
                 <p class="label">登録ファイル一覧</p>
+                <p class="resultMeta" id="imageCount">表示データ枚数: 0枚</p>
                 <div class="actions">
                     <button id="refreshListButton" class="secondary" type="button">一覧更新</button>
                 </div>
@@ -541,6 +553,7 @@
         const deleteButton = document.getElementById("deleteButton");
         const refreshListButton = document.getElementById("refreshListButton");
         const imageList = document.getElementById("imageList");
+        const imageCount = document.getElementById("imageCount");
         const lightbox = document.getElementById("lightbox");
         const lightboxTitle = document.getElementById("lightboxTitle");
         const lightboxImage = document.getElementById("lightboxImage");
@@ -616,6 +629,24 @@
             updateResultActions();
         }
 
+        function appendEmptyDataMessage(container) {
+            const message = document.createElement("p");
+            message.className = "emptyDataMessage";
+            message.textContent = "表示データはありません";
+            container.appendChild(message);
+        }
+
+        function showEmptyPreview() {
+            currentImage = null;
+            resultMeta.textContent = "";
+            resultComment.textContent = "";
+            resultComment.classList.add("hidden");
+            recordImageGrid.textContent = "";
+            appendEmptyDataMessage(recordImageGrid);
+            previewPanel.classList.remove("hidden");
+            updateResultActions();
+        }
+
         function clearPreview() {
             clearPreviewDisplay();
             titleInput.value = "";
@@ -676,6 +707,12 @@
                 urlIndex += 1;
                 if (urlIndex < urls.length) {
                     img.src = urls[urlIndex];
+                    return;
+                }
+                const frame = img.parentElement;
+                if (frame) {
+                    frame.textContent = "";
+                    appendEmptyDataMessage(frame);
                 }
             };
             img.src = urls[0] || "";
@@ -737,9 +774,15 @@
         function renderRecordImages(image) {
             const images = Array.isArray(image.recordImages) && image.recordImages.length
                 ? image.recordImages
-                : [{ file: image.name, comment: image.comment || "" }];
+                : image.name
+                    ? [{ file: image.name, comment: image.comment || "" }]
+                    : [];
             image.recordImages = images;
             recordImageGrid.textContent = "";
+            if (!images.length) {
+                appendEmptyDataMessage(recordImageGrid);
+                return;
+            }
             const currentName = normalizeImageFilePath(image.name);
             images.slice(0, 6).forEach((entry, index) => {
                 const item = document.createElement("article");
@@ -1383,10 +1426,7 @@
         function renderImageList(records) {
             imageList.textContent = "";
             if (!records.length) {
-                const empty = document.createElement("p");
-                empty.className = "resultMeta";
-                empty.textContent = "登録ファイルはありません。";
-                imageList.appendChild(empty);
+                appendEmptyDataMessage(imageList);
                 return;
             }
 
@@ -1422,11 +1462,27 @@
         async function refreshImageList() {
             setStatus("登録ファイル一覧を取得中...");
             const { catalog } = await loadCatalogFile();
+            const repoBase = `https://api.github.com/repos/${session.owner}/${session.repo}`;
+            const branchPath = encodeURIComponent(session.branch);
+            const tree = await githubRequest(`${repoBase}/git/trees/${branchPath}?recursive=1`, {
+                headers: githubHeaders()
+            });
+            const repositoryImagePaths = new Set((Array.isArray(tree && tree.tree) ? tree.tree : [])
+                .filter((item) => item.type === "blob" && item.path.startsWith("images/"))
+                .map((item) => item.path.slice(7)));
             const records = catalog.records
-                .filter((record) => record.images.length)
+                .map((record) => ({
+                    ...record,
+                    images: record.images.filter((image) => (
+                        recordImageFileCandidates(record.name, image.file)
+                            .some((candidate) => repositoryImagePaths.has(candidate))
+                    ))
+                }))
                 .sort((a, b) => a.name.localeCompare(b.name, "ja"));
+            const totalImages = records.reduce((total, record) => total + record.images.length, 0);
+            imageCount.textContent = `表示データ枚数: ${totalImages}枚`;
             renderImageList(records);
-            setStatus(`登録ファイル一覧を表示しました: ${records.length}件`);
+            setStatus(`登録ファイル一覧を表示しました: ${records.length}件 / ${totalImages}枚`);
         }
 
         async function getRecordImage(record, imageEntry) {
@@ -2194,6 +2250,7 @@
                 setStatus(`検索中: ${searchText}`);
                 const image = await findImageByInputs(modelNo, title, numbers);
                 if (!image) {
+                    showEmptyPreview();
                     setStatus("登録データが見つかりませんでした。");
                     return;
                 }
