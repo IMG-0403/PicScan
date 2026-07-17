@@ -503,7 +503,7 @@
 
             <div class="listPanel">
                 <p class="label">登録ファイル一覧</p>
-                <p class="resultMeta" id="imageCount">表示データ枚数: 0枚</p>
+                <p class="resultMeta" id="imageCount">0</p>
                 <div class="actions">
                     <button id="refreshListButton" class="secondary" type="button">一覧更新</button>
                 </div>
@@ -567,6 +567,7 @@
         const githubContentsMaxBytes = 100 * 1024 * 1024;
         let session = null;
         let currentImage = null;
+        let currentRecord = null;
         let recordImageClickTimer = null;
         const localPreviewUrls = new Map();
 
@@ -613,14 +614,16 @@
 
         function updateResultActions() {
             const hasImage = Boolean(currentImage);
+            const hasRecord = Boolean(currentRecord) || hasImage;
             commentButton.disabled = !hasImage;
             renameButton.disabled = !hasImage || !currentImage.bytes;
             deleteButton.disabled = !hasImage;
-            deleteRecordButton.disabled = !hasImage;
+            deleteRecordButton.disabled = !hasRecord;
         }
 
         function clearPreviewDisplay() {
             currentImage = null;
+            currentRecord = null;
             resultMeta.textContent = "";
             resultComment.textContent = "";
             resultComment.classList.add("hidden");
@@ -638,12 +641,24 @@
 
         function showEmptyPreview() {
             currentImage = null;
+            currentRecord = null;
             resultMeta.textContent = "";
             resultComment.textContent = "";
             resultComment.classList.add("hidden");
             recordImageGrid.textContent = "";
             appendEmptyDataMessage(recordImageGrid);
             previewPanel.classList.remove("hidden");
+            updateResultActions();
+        }
+
+        function showEmptyRecord(record) {
+            showEmptyPreview();
+            currentRecord = record;
+            modelInput.value = record.name || "";
+            titleInput.value = record.title || record.name || "";
+            numbersInput.value = Array.isArray(record.numbers) ? record.numbers.join(", ") : "";
+            commentInput.value = recordComment(record);
+            resultMeta.textContent = `検索型番: ${record.name}${record.title ? ` / 名称: ${record.title}` : ""}`;
             updateResultActions();
         }
 
@@ -914,6 +929,13 @@
 
         function selectCurrentImage(image) {
             currentImage = image;
+            currentRecord = image.recordName ? {
+                name: image.recordName,
+                title: image.title || image.recordName,
+                numbers: Array.isArray(image.numbers) ? image.numbers : [],
+                comment: image.comment || "",
+                images: Array.isArray(image.recordImages) ? image.recordImages : []
+            } : null;
             resultMeta.textContent = `images/${image.name}`;
             resultComment.textContent = image.comment || "";
             resultComment.classList.toggle("hidden", !image.comment);
@@ -947,6 +969,13 @@
 
         function showPreview(image) {
             currentImage = image;
+            currentRecord = image.recordName ? {
+                name: image.recordName,
+                title: image.title || image.recordName,
+                numbers: Array.isArray(image.numbers) ? image.numbers : [],
+                comment: image.comment || "",
+                images: Array.isArray(image.recordImages) ? image.recordImages : []
+            } : null;
             const titleText = image.title ? ` / 名称: ${image.title}` : "";
             const recordText = image.recordName ? ` / 検索型番: ${image.recordName}` : "";
             const numberText = image.numbers && image.numbers.length ? ` / 登録番号: ${image.numbers.join(", ")}` : "";
@@ -1438,7 +1467,7 @@
                 name.className = "imageListName";
                 const numberText = record.numbers && record.numbers.length ? ` / ${record.numbers.join(", ")}` : "";
                 const titleText = record.title && record.title !== record.name ? ` / ${record.title}` : "";
-                name.textContent = `${record.name}${titleText} (${record.images.length}枚)${numberText}`;
+                name.textContent = `${record.name}${titleText} (${record.images.length})${numberText}`;
 
                 const selectButton = document.createElement("button");
                 selectButton.className = "secondary";
@@ -1480,9 +1509,9 @@
                 }))
                 .sort((a, b) => a.name.localeCompare(b.name, "ja"));
             const totalImages = records.reduce((total, record) => total + record.images.length, 0);
-            imageCount.textContent = `表示データ枚数: ${totalImages}枚`;
+            imageCount.textContent = String(totalImages);
             renderImageList(records);
-            setStatus(`登録ファイル一覧を表示しました: ${records.length}件 / ${totalImages}枚`);
+            setStatus(`登録ファイル一覧を表示しました: ${records.length} / ${totalImages}`);
         }
 
         async function getRecordImage(record, imageEntry) {
@@ -1524,8 +1553,8 @@
                 setBusy(true);
                 const first = record.images[0];
                 if (!first) {
-                    setStatus("ファイルが見つかりませんでした。");
-                    await refreshImageList();
+                    showEmptyRecord(record);
+                    setStatus(`登録データを表示しました: ${record.name} (0)`);
                     return;
                 }
                 setStatus(`読み込み中: ${record.name}`);
@@ -2057,7 +2086,7 @@
                 setStatus("検索型番を入力してください。");
                 return;
             }
-            if (!currentImage && !files.length) {
+            if (!currentImage && !currentRecord && !files.length) {
                 setStatus("画像またはPDFファイルを選択してください。");
                 return;
             }
@@ -2189,10 +2218,12 @@
                 const image = previewFileName ? await getImage(previewFileName) : null;
                 if (image) {
                     showPreview(await attachCatalogToImage(image));
+                } else if (!record.images.length) {
+                    showEmptyRecord(record);
                 }
                 await refreshImageList();
                 photoInput.value = "";
-                setStatus(`保存しました: ${record.name} (${record.images.length}/6枚)`);
+                setStatus(`保存しました: ${record.name} (${record.images.length}/6)`);
             } catch (error) {
                 setStatus(error.message);
             } finally {
@@ -2274,15 +2305,17 @@
         });
 
         deleteRecordButton.addEventListener("click", async () => {
-            if (!currentImage) {
+            if (!currentImage && !currentRecord) {
                 setStatus("削除する登録データを検索して表示してください。");
                 return;
             }
             try {
                 ensureGitHubSession();
                 const { catalog } = await loadCatalogFile();
-                const recordName = currentImage.recordName || modelInput.value.trim();
-                const record = findRecordByImage(catalog, currentImage.name)
+                const recordName = (currentRecord && currentRecord.name)
+                    || (currentImage && currentImage.recordName)
+                    || modelInput.value.trim();
+                const record = (currentImage && findRecordByImage(catalog, currentImage.name))
                     || findRecordByName(catalog, recordName);
                 if (!record) {
                     setStatus("削除する登録レコードが見つかりませんでした。");
