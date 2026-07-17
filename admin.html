@@ -545,6 +545,7 @@
         let session = null;
         let currentImage = null;
         let recordImageClickTimer = null;
+        const localPreviewUrls = new Map();
 
         function setStatus(message) {
             statusBox.textContent = message;
@@ -661,6 +662,21 @@
             img.src = urls[0] || "";
         }
 
+        function clearLocalPreviewUrls() {
+            localPreviewUrls.forEach((url) => URL.revokeObjectURL(url));
+            localPreviewUrls.clear();
+        }
+
+        function setLocalPreviewUrl(fileName, bytes) {
+            const normalized = normalizeImageFilePath(fileName);
+            const previousUrl = localPreviewUrls.get(normalized);
+            if (previousUrl) {
+                URL.revokeObjectURL(previousUrl);
+            }
+            const blob = new Blob([bytes], { type: contentTypeForName(normalized) });
+            localPreviewUrls.set(normalized, URL.createObjectURL(blob));
+        }
+
         function isPdfFile(fileName) {
             return /\.pdf(?:$|[?#])/i.test(String(fileName || ""));
         }
@@ -713,7 +729,13 @@
                 const frame = document.createElement("div");
                 frame.className = "recordImageFrame";
 
-                const urls = recordImageUrls(recordName, entryFile);
+                const publishedUrls = recordImageUrls(recordName, entryFile);
+                const localPreviewUrl = recordImageFileCandidates(recordName, entryFile)
+                    .map((candidate) => localPreviewUrls.get(candidate))
+                    .find(Boolean);
+                const urls = localPreviewUrl
+                    ? [localPreviewUrl, ...publishedUrls]
+                    : publishedUrls;
                 const previewTitle = `${recordName || image.name} ${entryFile}`;
                 let previewElement;
                 if (isPdfFile(entryFile)) {
@@ -1430,6 +1452,9 @@
             try {
                 ensureGitHubSession();
                 setBusy(true);
+                if (files.length) {
+                    clearLocalPreviewUrls();
+                }
                 const { sha, catalog } = await loadCatalogFile();
                 const target = catalog.records.find((item) => item.name.toLowerCase() === record.name.toLowerCase());
                 if (!target) {
@@ -1764,6 +1789,7 @@
                         } catch (error) {
                             throw new Error(`${file.name} の画像保存に失敗しました。${error.message}`);
                         }
+                        setLocalPreviewUrl(fileName, bytes);
                         record.images.push({ file: fileName });
                         if (previewFileName === imageEntry.file) {
                             previewFileName = fileName;
@@ -1801,6 +1827,7 @@
                         } catch (error) {
                             throw new Error(`${file.name} の画像保存に失敗しました。${error.message}`);
                         }
+                        setLocalPreviewUrl(fileName, bytes);
                         record.images.push({ file: fileName });
                         if (!previewFileName) {
                             previewFileName = fileName;
@@ -2017,6 +2044,7 @@
                 closeLightbox();
             }
         });
+        window.addEventListener("beforeunload", clearLocalPreviewUrls);
     </script>
 </body>
 </html>
