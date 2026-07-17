@@ -1737,8 +1737,113 @@
                 if (!isNetworkDeleteFailure) {
                     throw error;
                 }
-                setStatus(`DELETE通信を使わずGitHubコミットで削除中: images/${fileName}`);
-                await deleteImageWithGitCommit(fileName, message);
+                setStatus(`XHR通信で削除中: images/${fileName}`);
+                try {
+                    await deleteImageWithXhr(fileName, sha, message);
+                    return;
+                } catch (xhrError) {
+                    // WebViewなどでfetchのDELETEだけが失敗する場合にXHRを試し、失敗時はコミット方式へ進む。
+                }
+                setStatus(`GraphQLコミットで削除中: images/${fileName}`);
+                try {
+                    await deleteImageWithGraphQL(fileName, message);
+                } catch (graphqlError) {
+                    const isGraphqlNetworkFailure = graphqlError instanceof TypeError
+                        || /failed to fetch|networkerror|network request failed/i.test(graphqlError.message || "");
+                    if (!isGraphqlNetworkFailure) {
+                        throw new Error(`GraphQL削除エラー: ${graphqlError.message}`);
+                    }
+                    setStatus(`Git Dataコミットで削除中: images/${fileName}`);
+                    try {
+                        await deleteImageWithGitCommit(fileName, message);
+                    } catch (gitError) {
+                        throw new Error(`Git Data削除通信エラー: ${gitError.message}`);
+                    }
+                }
+            }
+        }
+
+        function deleteImageWithXhr(fileName, sha, message) {
+            return new Promise((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+                xhr.open("DELETE", contentUrl(fileName, false), true);
+                const headers = githubHeaders();
+                Object.entries(headers).forEach(([name, value]) => xhr.setRequestHeader(name, value));
+                xhr.setRequestHeader("Content-Type", "application/json");
+                xhr.onload = () => {
+                    let body = null;
+                    if (xhr.responseText) {
+                        try {
+                            body = JSON.parse(xhr.responseText);
+                        } catch (error) {
+                            body = null;
+                        }
+                    }
+                    if (xhr.status >= 200 && xhr.status < 300) {
+                        resolve(body);
+                        return;
+                    }
+                    reject(new Error(githubErrorMessage(xhr.status, body, xhr.responseText || "")));
+                };
+                xhr.onerror = () => reject(new Error("XHR DELETE通信に失敗しました。"));
+                xhr.ontimeout = () => reject(new Error("XHR DELETE通信がタイムアウトしました。"));
+                xhr.timeout = 30000;
+                xhr.send(JSON.stringify({
+                    message,
+                    branch: session.branch,
+                    sha
+                }));
+            });
+        }
+
+        async function deleteImageWithGraphQL(fileName, message) {
+            const repoBase = `https://api.github.com/repos/${session.owner}/${session.repo}`;
+            const branchPath = encodeURIComponent(session.branch);
+            const ref = await githubRequest(`${repoBase}/git/ref/heads/${branchPath}`, {
+                headers: githubHeaders()
+            });
+            const headSha = ref && ref.object && ref.object.sha;
+            if (!headSha) {
+                throw new Error("GitHubブランチの最新コミットを取得できませんでした。");
+            }
+
+            const query = `mutation DeleteImage($input: CreateCommitOnBranchInput!) {
+                createCommitOnBranch(input: $input) {
+                    commit { oid url }
+                }
+            }`;
+            const normalized = normalizeImageFilePath(fileName);
+            const response = await githubRequest("https://api.github.com/graphql", {
+                method: "POST",
+                headers: {
+                    ...githubHeaders(),
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    query,
+                    variables: {
+                        input: {
+                            branch: {
+                                repositoryNameWithOwner: `${session.owner}/${session.repo}`,
+                                branchName: session.branch
+                            },
+                            message: { headline: message },
+                            fileChanges: {
+                                deletions: [{ path: `images/${normalized}` }]
+                            },
+                            expectedHeadOid: headSha
+                        }
+                    }
+                })
+            });
+            if (Array.isArray(response && response.errors) && response.errors.length) {
+                throw new Error(response.errors.map((item) => item.message).join(" / "));
+            }
+            const commit = response && response.data
+                && response.data.createCommitOnBranch
+                && response.data.createCommitOnBranch.commit;
+            if (!commit || !commit.oid) {
+                throw new Error("GitHubから削除コミットの結果が返されませんでした。");
             }
         }
 
