@@ -1718,16 +1718,95 @@
         }
 
         async function deleteImage(fileName, sha, message = `Delete ${fileName}`) {
-            await githubRequest(contentUrl(fileName, false), {
-                method: "DELETE",
+            try {
+                await githubRequest(contentUrl(fileName, false), {
+                    method: "DELETE",
+                    headers: {
+                        ...githubHeaders(),
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        message,
+                        branch: session.branch,
+                        sha
+                    })
+                });
+            } catch (error) {
+                const isNetworkDeleteFailure = error instanceof TypeError
+                    || /failed to fetch|networkerror|network request failed/i.test(error.message || "");
+                if (!isNetworkDeleteFailure) {
+                    throw error;
+                }
+                setStatus(`DELETE通信を使わずGitHubコミットで削除中: images/${fileName}`);
+                await deleteImageWithGitCommit(fileName, message);
+            }
+        }
+
+        async function deleteImageWithGitCommit(fileName, message) {
+            const repoBase = `https://api.github.com/repos/${session.owner}/${session.repo}`;
+            const branchPath = encodeURIComponent(session.branch);
+            const ref = await githubRequest(`${repoBase}/git/ref/heads/${branchPath}`, {
+                headers: githubHeaders()
+            });
+            const headSha = ref && ref.object && ref.object.sha;
+            if (!headSha) {
+                throw new Error("GitHubブランチの最新コミットを取得できませんでした。");
+            }
+
+            const headCommit = await githubRequest(`${repoBase}/git/commits/${encodeURIComponent(headSha)}`, {
+                headers: githubHeaders()
+            });
+            const baseTreeSha = headCommit && headCommit.tree && headCommit.tree.sha;
+            if (!baseTreeSha) {
+                throw new Error("GitHubのファイルツリーを取得できませんでした。");
+            }
+
+            const normalized = normalizeImageFilePath(fileName);
+            const nextTree = await githubRequest(`${repoBase}/git/trees`, {
+                method: "POST",
+                headers: {
+                    ...githubHeaders(),
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    base_tree: baseTreeSha,
+                    tree: [{
+                        path: `images/${normalized}`,
+                        mode: "100644",
+                        type: "blob",
+                        sha: null
+                    }]
+                })
+            });
+            if (!nextTree || !nextTree.sha) {
+                throw new Error("画像を除外したGitHubツリーを作成できませんでした。");
+            }
+
+            const nextCommit = await githubRequest(`${repoBase}/git/commits`, {
+                method: "POST",
                 headers: {
                     ...githubHeaders(),
                     "Content-Type": "application/json"
                 },
                 body: JSON.stringify({
                     message,
-                    branch: session.branch,
-                    sha
+                    tree: nextTree.sha,
+                    parents: [headSha]
+                })
+            });
+            if (!nextCommit || !nextCommit.sha) {
+                throw new Error("画像削除用のGitHubコミットを作成できませんでした。");
+            }
+
+            await githubRequest(`${repoBase}/git/refs/heads/${branchPath}`, {
+                method: "PATCH",
+                headers: {
+                    ...githubHeaders(),
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    sha: nextCommit.sha,
+                    force: false
                 })
             });
         }
