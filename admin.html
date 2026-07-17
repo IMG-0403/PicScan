@@ -240,7 +240,7 @@
 
         .recordImageActions {
             display: grid;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
+            grid-template-columns: repeat(3, minmax(0, 1fr));
             gap: 8px;
             padding: 0 10px 10px;
         }
@@ -250,6 +250,10 @@
             padding: 0 10px;
             background: #3f596d;
             font-size: 0.9rem;
+        }
+
+        .recordImageActions button.danger {
+            background: #b3261e;
         }
 
         .recordImageActions button:disabled {
@@ -471,11 +475,14 @@
                 </div>
             </div>
             <div class="actions">
-                <button id="uploadButton" type="button">登録を保存</button>
                 <button id="searchButton" class="secondary" type="button">検索</button>
+                <button id="clearButton" class="secondary" type="button">クリア</button>
+                <button id="uploadButton" type="button">保存</button>
+                <button id="deleteRecordButton" class="danger" type="button" disabled>削除</button>
+                <button id="cancelButton" class="secondary" type="button">キャンセル</button>
                 <button id="commentButton" class="secondary hidden" type="button" disabled>コメント保存</button>
                 <button id="renameButton" class="secondary hidden" type="button" disabled>名前変更</button>
-                <button id="deleteButton" class="danger" type="button" disabled>ファイル削除</button>
+                <button id="deleteButton" class="danger hidden" type="button" disabled>ファイル削除</button>
             </div>
             <div class="previewPanel hidden" id="previewPanel">
                 <p class="resultMeta" id="resultMeta"></p>
@@ -526,6 +533,9 @@
         const loginButton = document.getElementById("loginButton");
         const uploadButton = document.getElementById("uploadButton");
         const searchButton = document.getElementById("searchButton");
+        const clearButton = document.getElementById("clearButton");
+        const deleteRecordButton = document.getElementById("deleteRecordButton");
+        const cancelButton = document.getElementById("cancelButton");
         const commentButton = document.getElementById("commentButton");
         const renameButton = document.getElementById("renameButton");
         const deleteButton = document.getElementById("deleteButton");
@@ -574,7 +584,7 @@
         }
 
         function setBusy(isBusy) {
-            [loginButton, uploadButton, searchButton, commentButton, renameButton, deleteButton, refreshListButton].forEach((button) => {
+            [loginButton, uploadButton, searchButton, clearButton, deleteRecordButton, cancelButton, commentButton, renameButton, deleteButton, refreshListButton].forEach((button) => {
                 button.disabled = isBusy;
             });
             imageList.querySelectorAll("button").forEach((button) => {
@@ -590,20 +600,26 @@
             commentButton.disabled = !hasImage;
             renameButton.disabled = !hasImage || !currentImage.bytes;
             deleteButton.disabled = !hasImage;
+            deleteRecordButton.disabled = !hasImage;
         }
 
-        function clearPreview() {
+        function clearPreviewDisplay() {
             currentImage = null;
             resultMeta.textContent = "";
             resultComment.textContent = "";
             resultComment.classList.add("hidden");
             recordImageGrid.textContent = "";
+            previewPanel.classList.add("hidden");
+            updateResultActions();
+        }
+
+        function clearPreview() {
+            clearPreviewDisplay();
             titleInput.value = "";
             numbersInput.value = "";
             commentInput.value = "";
             photoInput.value = "";
-            previewPanel.classList.add("hidden");
-            updateResultActions();
+            modelInput.value = "";
         }
 
         function encodePathSegment(value) {
@@ -794,8 +810,18 @@
                 downButton.disabled = index === images.length - 1 || index >= 5;
                 downButton.addEventListener("click", () => moveRecordImage(index, 1));
 
+                const removeButton = document.createElement("button");
+                removeButton.type = "button";
+                removeButton.className = "danger";
+                removeButton.textContent = "削除";
+                removeButton.addEventListener("click", async () => {
+                    await selectRecordImage(image, entry);
+                    deleteButton.click();
+                });
+
                 actions.appendChild(upButton);
                 actions.appendChild(downButton);
+                actions.appendChild(removeButton);
                 item.appendChild(actions);
                 recordImageGrid.appendChild(item);
             });
@@ -1603,6 +1629,42 @@
             return matched ? attachCatalogToImage(await getImage(matched.name)) : null;
         }
 
+        async function findImageByInputs(modelValue, titleValue, numbers) {
+            const modelQuery = modelValue.trim().toLowerCase();
+            const titleQuery = titleValue.trim().toLowerCase();
+            if (!titleQuery && !numbers.length) {
+                return findImage(modelValue);
+            }
+
+            const { catalog } = await loadCatalogFile();
+            const record = catalog.records.find((item) => {
+                const matchesModel = !modelQuery
+                    || item.name.toLowerCase() === modelQuery
+                    || item.numbers.includes(modelValue.trim());
+                const matchesTitle = !titleQuery
+                    || (item.title || item.name).toLowerCase().includes(titleQuery);
+                const matchesNumbers = !numbers.length
+                    || numbers.every((number) => item.numbers.includes(number));
+                return matchesModel && matchesTitle && matchesNumbers;
+            });
+            if (!record || !record.images.length) {
+                return null;
+            }
+
+            const image = await getRecordImage(record, record.images[0]);
+            if (!image) {
+                return null;
+            }
+            return {
+                ...image,
+                recordName: record.name,
+                title: record.title || record.name,
+                numbers: record.numbers,
+                recordImages: record.images,
+                comment: recordComment(record) || image.comment
+            };
+        }
+
         function contentTypeForName(fileName) {
             const extension = fileName.split(".").pop().toLowerCase();
             if (extension === "pdf") {
@@ -1899,27 +1961,66 @@
 
         searchButton.addEventListener("click", async () => {
             const modelNo = modelInput.value.trim();
-            if (!modelNo) {
-                setStatus("登録名または4桁登録番号を入力してください。");
+            const title = titleInput.value.trim();
+            const numberTokens = parseNumberTokens(numbersInput.value);
+            const numbers = parseNumbers(numbersInput.value);
+            if (!modelNo && !title && !numberTokens.length) {
+                setStatus("検索型番、名称、または4桁登録番号を入力してください。");
+                return;
+            }
+            if (numberTokens.some((number) => !/^\d{4}$/.test(number))) {
+                setStatus("登録番号は4桁数字で入力してください。");
                 return;
             }
 
             try {
                 ensureGitHubSession();
                 setBusy(true);
-                clearPreview();
-                setStatus(`検索中: ${modelNo}`);
-                const image = await findImage(modelNo);
+                clearPreviewDisplay();
+                const searchText = [modelNo, title, ...numbers].filter(Boolean).join(" / ");
+                setStatus(`検索中: ${searchText}`);
+                const image = await findImageByInputs(modelNo, title, numbers);
                 if (!image) {
-                    setStatus("ファイルが見つかりませんでした。");
+                    setStatus("登録データが見つかりませんでした。");
                     return;
                 }
                 showPreview(image);
-                setStatus(`表示しました: images/${image.name}`);
+                setStatus(`登録データを表示しました: ${image.recordName || image.name}`);
             } catch (error) {
                 setStatus(error.message);
             } finally {
                 setBusy(false);
+            }
+        });
+
+        clearButton.addEventListener("click", () => {
+            clearPreview();
+            setStatus("入力内容をクリアしました。");
+        });
+
+        cancelButton.addEventListener("click", () => {
+            clearPreview();
+            setStatus("編集をキャンセルし、表示をクリアしました。登録データは変更されていません。");
+        });
+
+        deleteRecordButton.addEventListener("click", async () => {
+            if (!currentImage) {
+                setStatus("削除する登録データを検索して表示してください。");
+                return;
+            }
+            try {
+                ensureGitHubSession();
+                const { catalog } = await loadCatalogFile();
+                const recordName = currentImage.recordName || modelInput.value.trim();
+                const record = findRecordByImage(catalog, currentImage.name)
+                    || findRecordByName(catalog, recordName);
+                if (!record) {
+                    setStatus("削除する登録レコードが見つかりませんでした。");
+                    return;
+                }
+                await deleteListedRecord(record);
+            } catch (error) {
+                setStatus(error.message);
             }
         });
 
