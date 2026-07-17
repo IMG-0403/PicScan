@@ -9,7 +9,7 @@
       "comment": "",
       "images": [
         {
-          "file": "CT37-X0N-57S10DG/CT37-X0N-57S10DG_1.jpg"
+          "file": "CT37-X0N-57S10DG\/CT37-X0N-57S10DG_1.jpg"
         }
       ]
     },
@@ -22,7 +22,7 @@
       "comment": "",
       "images": [
         {
-          "file": "CT37-X0N-58S10DG/CT37-X0N-58S10DG_1.jpg"
+          "file": "CT37-X0N-58S10DG\/CT37-X0N-58S10DG_1.jpg"
         }
       ]
     },
@@ -98,7 +98,17 @@
       "comment": "黒、SOCR",
       "images": [
         {
-          "file": "1960GHDV-2USB-A/1960GHDV-2USB-A_1.jpg"
+          "file": "1960GHDV-2USB-A\/1960GHDV-2USB-A_1.jpg"
+        }
+      ]
+    },
+    {
+      "name": "1960GHD-2USB",
+      "numbers": [],
+      "comment": "",
+      "images": [
+        {
+          "file": "1960GHD-2USB\/1960GHD-2USB_1.jpg"
         }
       ]
     }
