@@ -817,11 +817,11 @@
                 removeButton.type = "button";
                 removeButton.className = "danger";
                 removeButton.textContent = "削除";
-                removeButton.addEventListener("click", async () => {
+                removeButton.addEventListener("click", async (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
                     const targetFile = normalizeImageFilePath(entry.file);
-                    if (!confirm(`images/${targetFile} を削除しますか？`)) {
-                        return;
-                    }
+                    setStatus(`画像削除を開始します: images/${targetFile}`);
                     await deleteRecordImage(image, entry);
                 });
 
