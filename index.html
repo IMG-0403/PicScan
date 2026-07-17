@@ -567,6 +567,35 @@
             return `images/${encodePathSegment(fileName)}`;
         }
 
+        function recordImageUrlCandidates(recordName, fileName) {
+            const normalized = String(fileName || "").trim().replaceAll("\\", "/").replace(/^images\//i, "");
+            const candidates = [];
+            const add = (path) => {
+                if (path && !candidates.includes(path)) {
+                    candidates.push(path);
+                }
+            };
+            add(normalized);
+
+            const slashIndex = normalized.lastIndexOf("/");
+            const folder = slashIndex >= 0 ? normalized.slice(0, slashIndex) : recordName;
+            const leafName = slashIndex >= 0 ? normalized.slice(slashIndex + 1) : normalized;
+            const extension = leafName.match(/\.[a-z0-9]+$/i)?.[0].toLowerCase() || ".jpg";
+            const numberedBase = leafName.replace(/_\d+\.[^.]+$/i, "").replace(/\.[^.]+$/, "")
+                || String(recordName || "").replace(/\.[^.]+$/, "");
+            const imageExtensions = [...new Set([extension, ".jpg", ".jpeg", ".png", ".webp", ".gif"])]
+                .filter((value) => value !== ".pdf");
+            for (let index = 1; index <= 6; index += 1) {
+                add(`${folder}/${numberedBase}_${index}${extension}`);
+            }
+            for (const value of imageExtensions.filter((item) => item !== extension)) {
+                for (let index = 1; index <= 6; index += 1) {
+                    add(`${folder}/${numberedBase}_${index}${value}`);
+                }
+            }
+            return candidates.map(imageUrl);
+        }
+
         function isPdfFile(fileName) {
             return /\.pdf(?:$|[?#])/i.test(String(fileName || ""));
         }
@@ -612,6 +641,7 @@
             resultComment.textContent = recordComments.join("\n");
             resultCommentBlock.classList.toggle("isHidden", !recordComments.length);
             imageGrid.textContent = "";
+            const loadedImageSources = new Set();
             record.images.slice(0, 6).forEach((image) => {
                 const item = document.createElement("article");
                 item.className = "imageItem";
@@ -623,6 +653,7 @@
                 frame.className = "imageFrame";
 
                 const src = imageUrl(image.file);
+                const candidateUrls = recordImageUrlCandidates(record.name, image.file);
                 const previewTitle = `${displayTitle} ${image.file}`;
                 let previewElement;
                 if (isPdfFile(image.file)) {
@@ -643,17 +674,36 @@
 
                 frame.appendChild(previewElement);
                 button.appendChild(frame);
-                button.addEventListener("click", () => openLightbox(previewTitle, src, commentText, image.file));
+                button.addEventListener("click", () => {
+                    const activeSrc = !isPdfFile(image.file) && previewElement.currentSrc
+                        ? previewElement.currentSrc
+                        : src;
+                    openLightbox(previewTitle, activeSrc, commentText, image.file);
+                });
                 item.appendChild(button);
                 imageGrid.appendChild(item);
                 if (!isPdfFile(image.file)) {
+                    let candidateIndex = 0;
+                    previewElement.onload = () => {
+                        const loadedSrc = previewElement.currentSrc || previewElement.src;
+                        if (loadedImageSources.has(loadedSrc)) {
+                            item.remove();
+                            return;
+                        }
+                        loadedImageSources.add(loadedSrc);
+                    };
                     previewElement.onerror = () => {
+                        candidateIndex += 1;
+                        if (candidateIndex < candidateUrls.length) {
+                            previewElement.src = candidateUrls[candidateIndex];
+                            return;
+                        }
                         item.remove();
                         if (!imageGrid.querySelector(".imageItem")) {
                             showMessage("表示データはありません", "", searchedModel);
                         }
                     };
-                    previewElement.src = src;
+                    previewElement.src = candidateUrls[0] || src;
                 }
             });
             message.classList.add("isHidden");
