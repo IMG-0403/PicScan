@@ -198,6 +198,26 @@
             object-fit: contain;
         }
 
+        .pdfFilePreview {
+            display: grid;
+            gap: 10px;
+            place-items: center;
+            color: #334455;
+            text-align: center;
+            overflow-wrap: anywhere;
+        }
+
+        .pdfFilePreview strong {
+            display: grid;
+            place-items: center;
+            width: 88px;
+            height: 112px;
+            border-radius: 6px;
+            background: #c62828;
+            color: #ffffff;
+            font-size: 1.2rem;
+        }
+
         .imageItem button:hover .imageFrame {
             box-shadow: inset 0 0 0 3px rgba(34, 116, 165, 0.22);
         }
@@ -306,6 +326,25 @@
             object-fit: contain;
         }
 
+        .lightboxImageWrap iframe {
+            width: 100%;
+            height: calc(100vh - 180px);
+            min-height: 420px;
+            border: 0;
+            background: #ffffff;
+        }
+
+        .lightboxImageWrap .isHidden,
+        .lightboxOpenLink.isHidden {
+            display: none;
+        }
+
+        .lightboxOpenLink {
+            color: #2274a5;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
         .lightboxComment {
             margin: 0;
             padding: 12px 14px;
@@ -347,7 +386,7 @@
 <body>
     <main class="appShell">
         <header class="topBar">
-            <p class="label">画像検索</p>
+            <p class="label">画像・PDF検索</p>
             <h1>ヘルプデスクツール</h1>
         </header>
 
@@ -384,10 +423,12 @@
             <div class="lightboxPanel">
                 <div class="lightboxHeader">
                     <p id="lightboxTitle"></p>
+                    <a class="lightboxOpenLink isHidden" id="lightboxOpenLink" target="_blank" rel="noopener">PDFを別画面で開く</a>
                     <button class="lightboxClose" id="lightboxClose" type="button" aria-label="閉じる">×</button>
                 </div>
                 <div class="lightboxImageWrap">
                     <img id="lightboxImage" src="" alt="">
+                    <iframe id="lightboxPdf" class="isHidden" title="PDFプレビュー"></iframe>
                 </div>
                 <p class="lightboxComment" id="lightboxComment"></p>
             </div>
@@ -409,9 +450,11 @@
         const lightbox = document.getElementById("lightbox");
         const lightboxTitle = document.getElementById("lightboxTitle");
         const lightboxImage = document.getElementById("lightboxImage");
+        const lightboxPdf = document.getElementById("lightboxPdf");
+        const lightboxOpenLink = document.getElementById("lightboxOpenLink");
         const lightboxComment = document.getElementById("lightboxComment");
         const lightboxClose = document.getElementById("lightboxClose");
-        const extensions = ["", ".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".svg"];
+        const extensions = ["", ".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".svg", ".pdf"];
 
         function encodePathSegment(value) {
             return value.split("/").map(encodeURIComponent).join("/");
@@ -462,6 +505,7 @@
             source
                 .map((record) => ({
                     name: String(record?.name || "").trim(),
+                    title: String(record?.title || record?.displayName || "").trim(),
                     numbers: Array.isArray(record?.numbers)
                         ? record.numbers.map((number) => String(number).trim()).filter(Boolean)
                         : [],
@@ -478,6 +522,9 @@
                     if (!record.comment) {
                         record.comment = record.images.find((image) => image.comment)?.comment || "";
                     }
+                    if (!record.title) {
+                        record.title = record.name;
+                    }
                     record.images = record.images.map((image) => ({ file: image.file }));
                     const existing = merged.find((item) => item.name.toLowerCase() === record.name.toLowerCase());
                     if (!existing) {
@@ -486,6 +533,9 @@
                     }
                     if (!existing.comment && record.comment) {
                         existing.comment = record.comment;
+                    }
+                    if ((!existing.title || existing.title === existing.name) && record.title) {
+                        existing.title = record.title;
                     }
                     existing.numbers = [...new Set([...existing.numbers, ...record.numbers])];
                     record.images.forEach((image) => {
@@ -517,10 +567,27 @@
             return `images/${encodePathSegment(fileName)}`;
         }
 
-        function openLightbox(title, src, comment) {
+        function isPdfFile(fileName) {
+            return /\.pdf(?:$|[?#])/i.test(String(fileName || ""));
+        }
+
+        function openLightbox(title, src, comment, fileName = src) {
             lightboxTitle.textContent = title;
-            lightboxImage.src = src;
-            lightboxImage.alt = title;
+            const showPdf = isPdfFile(fileName);
+            lightboxImage.classList.toggle("isHidden", showPdf);
+            lightboxPdf.classList.toggle("isHidden", !showPdf);
+            lightboxOpenLink.classList.toggle("isHidden", !showPdf);
+            if (showPdf) {
+                lightboxImage.removeAttribute("src");
+                lightboxImage.alt = "";
+                lightboxPdf.src = src;
+                lightboxOpenLink.href = src;
+            } else {
+                lightboxPdf.removeAttribute("src");
+                lightboxOpenLink.removeAttribute("href");
+                lightboxImage.src = src;
+                lightboxImage.alt = title;
+            }
             lightboxComment.textContent = comment || "";
             lightbox.classList.remove("isHidden");
         }
@@ -529,10 +596,13 @@
             lightbox.classList.add("isHidden");
             lightboxImage.removeAttribute("src");
             lightboxImage.alt = "";
+            lightboxPdf.removeAttribute("src");
+            lightboxOpenLink.removeAttribute("href");
         }
 
         function showRecord(record, comments, searchedModel = "") {
-            resultTitle.textContent = record.name;
+            const displayTitle = record.title || record.name;
+            resultTitle.textContent = displayTitle;
             const recordComments = [...new Set([
                 record.comment,
                 ...record.images.map((image) => image.comment || readComment(comments, image.file))
@@ -552,16 +622,29 @@
                 const frame = document.createElement("div");
                 frame.className = "imageFrame";
 
-                const img = document.createElement("img");
-                img.alt = `${record.name} ${image.file}`;
                 const src = imageUrl(image.file);
-                img.src = src;
+                const previewTitle = `${displayTitle} ${image.file}`;
+                let previewElement;
+                if (isPdfFile(image.file)) {
+                    previewElement = document.createElement("div");
+                    previewElement.className = "pdfFilePreview";
+                    const badge = document.createElement("strong");
+                    badge.textContent = "PDF";
+                    const fileLabel = document.createElement("span");
+                    fileLabel.textContent = image.file;
+                    previewElement.appendChild(badge);
+                    previewElement.appendChild(fileLabel);
+                } else {
+                    previewElement = document.createElement("img");
+                    previewElement.alt = previewTitle;
+                    previewElement.src = src;
+                }
 
                 const commentText = record.comment || image.comment || readComment(comments, image.file);
 
-                frame.appendChild(img);
+                frame.appendChild(previewElement);
                 button.appendChild(frame);
-                button.addEventListener("click", () => openLightbox(img.alt, src, commentText));
+                button.addEventListener("click", () => openLightbox(previewTitle, src, commentText, image.file));
                 item.appendChild(button);
                 imageGrid.appendChild(item);
             });
@@ -579,6 +662,7 @@
         function showLegacyImage(candidate, comments) {
             showRecord({
                 name: candidate.name.replace(/\.[^.]+$/, ""),
+                title: candidate.name.replace(/\.[^.]+$/, ""),
                 numbers: [],
                 images: [{ file: candidate.name, comment: readComment(comments, candidate.name) }]
             }, comments);
@@ -587,8 +671,8 @@
         function tryLoad(candidates, searchedModel, comments, index = 0) {
             if (index >= candidates.length) {
                 showMessage(
-                    "該当する画像がありません",
-                    "型番、4桁登録番号、または同じ名前の画像ファイルが登録されているか確認してください。",
+                    "該当するファイルがありません",
+                    "型番、4桁登録番号、または同じ名前の画像・PDFファイルが登録されているか確認してください。",
                     searchedModel
                 );
                 modelInput.value = "";
@@ -596,6 +680,18 @@
             }
 
             const candidate = candidates[index];
+            if (isPdfFile(candidate.name)) {
+                fetch(`${candidate.url}?v=${Date.now()}`, { method: "HEAD" })
+                    .then((response) => {
+                        if (response.ok) {
+                            showLegacyImage(candidate, comments);
+                        } else {
+                            tryLoad(candidates, searchedModel, comments, index + 1);
+                        }
+                    })
+                    .catch(() => tryLoad(candidates, searchedModel, comments, index + 1));
+                return;
+            }
             const probe = new Image();
             probe.onload = () => showLegacyImage(candidate, comments);
             probe.onerror = () => tryLoad(candidates, searchedModel, comments, index + 1);

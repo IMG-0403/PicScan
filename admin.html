@@ -208,6 +208,26 @@
             object-fit: contain;
         }
 
+        .pdfFilePreview {
+            display: grid;
+            gap: 8px;
+            place-items: center;
+            color: #334455;
+            text-align: center;
+            overflow-wrap: anywhere;
+        }
+
+        .pdfFilePreview strong {
+            display: grid;
+            place-items: center;
+            width: 76px;
+            height: 96px;
+            border-radius: 6px;
+            background: #c62828;
+            color: #ffffff;
+            font-size: 1.1rem;
+        }
+
         .recordImageCaption {
             margin: 0;
             padding: 10px 12px;
@@ -361,6 +381,19 @@
             object-fit: contain;
         }
 
+        .lightboxImageWrap iframe {
+            width: 100%;
+            height: calc(100vh - 180px);
+            min-height: 420px;
+            border: 0;
+            background: #ffffff;
+        }
+
+        .lightboxImageWrap img.hidden,
+        .lightboxImageWrap iframe.hidden {
+            display: none;
+        }
+
         .lightboxComment {
             margin: 0;
             padding: 12px 14px;
@@ -414,19 +447,23 @@
         </section>
 
         <section class="panel hidden" id="adminPanel">
-            <p class="label">画像管理</p>
+            <p class="label">画像・PDF管理</p>
             <div class="grid">
                 <div class="field">
-                    <label for="model">登録名</label>
-                    <input id="model" autocomplete="off" placeholder="例: 商品A">
+                    <label for="model">検索型番</label>
+                    <input id="model" autocomplete="off" placeholder="例: ABC-123">
+                </div>
+                <div class="field">
+                    <label for="title">名称</label>
+                    <input id="title" autocomplete="off" placeholder="例: 商品A">
                 </div>
                 <div class="field">
                     <label for="numbers">登録番号4桁</label>
                     <input id="numbers" autocomplete="off" placeholder="例: 1234, 5678">
                 </div>
                 <div class="field">
-                    <label for="photo">画像</label>
-                    <input id="photo" type="file" accept="image/*" capture="environment" multiple>
+                    <label for="photo">画像・PDF</label>
+                    <input id="photo" type="file" accept="image/*,application/pdf,.pdf" multiple>
                 </div>
                 <div class="field full">
                     <label for="comment">コメント</label>
@@ -438,7 +475,7 @@
                 <button id="searchButton" class="secondary" type="button">検索</button>
                 <button id="commentButton" class="secondary hidden" type="button" disabled>コメント保存</button>
                 <button id="renameButton" class="secondary hidden" type="button" disabled>名前変更</button>
-                <button id="deleteButton" class="danger" type="button" disabled>画像データ削除</button>
+                <button id="deleteButton" class="danger" type="button" disabled>ファイル削除</button>
             </div>
             <div class="previewPanel hidden" id="previewPanel">
                 <p class="resultMeta" id="resultMeta"></p>
@@ -447,7 +484,7 @@
             </div>
 
             <div class="listPanel">
-                <p class="label">登録画像一覧</p>
+                <p class="label">登録ファイル一覧</p>
                 <div class="actions">
                     <button id="refreshListButton" class="secondary" type="button">一覧更新</button>
                 </div>
@@ -465,6 +502,7 @@
                 </div>
                 <div class="lightboxImageWrap">
                     <img id="lightboxImage" src="" alt="">
+                    <iframe id="lightboxPdf" class="hidden" title="PDFプレビュー"></iframe>
                 </div>
                 <p class="lightboxComment" id="lightboxComment"></p>
             </div>
@@ -474,6 +512,7 @@
     <script>
         const tokenInput = document.getElementById("token");
         const modelInput = document.getElementById("model");
+        const titleInput = document.getElementById("title");
         const numbersInput = document.getElementById("numbers");
         const photoInput = document.getElementById("photo");
         const commentInput = document.getElementById("comment");
@@ -495,18 +534,42 @@
         const lightbox = document.getElementById("lightbox");
         const lightboxTitle = document.getElementById("lightboxTitle");
         const lightboxImage = document.getElementById("lightboxImage");
+        const lightboxPdf = document.getElementById("lightboxPdf");
         const lightboxComment = document.getElementById("lightboxComment");
         const lightboxClose = document.getElementById("lightboxClose");
 
         const defaultOwner = "img-0403";
         const defaultRepo = "PicScan";
-        const knownExtensions = [".jpg", ".jpeg", ".png", ".webp", ".gif"];
+        const knownExtensions = [".jpg", ".jpeg", ".png", ".webp", ".gif", ".pdf"];
+        const githubContentsMaxBytes = 100 * 1024 * 1024;
         let session = null;
         let currentImage = null;
         let recordImageClickTimer = null;
 
         function setStatus(message) {
             statusBox.textContent = message;
+        }
+
+        function githubErrorMessage(status, body, fallbackText = "") {
+            const detail = body && typeof body.message === "string"
+                ? body.message
+                : fallbackText.trim();
+            if (status === 401) {
+                return "GitHub Tokenが無効、または期限切れです。Tokenを確認して再接続してください。";
+            }
+            if (status === 403) {
+                return "GitHubへの書き込み権限がありません。Tokenに対象リポジトリの Contents: Read and write 権限を付けてください。";
+            }
+            if (status === 409) {
+                return "GitHub上のデータが同時に更新されました。一覧更新後、もう一度保存してください。";
+            }
+            if (status === 413) {
+                return "選択したファイルが大きすぎるため保存できません。100MB未満のファイルを選択してください。";
+            }
+            if (status === 422) {
+                return `GitHubが保存内容を受け付けませんでした。Tokenの書き込み権限とファイル名を確認してください。${detail ? ` (${detail})` : ""}`;
+            }
+            return `GitHub API error ${status}${detail ? `: ${detail}` : ""}`;
         }
 
         function setBusy(isBusy) {
@@ -534,6 +597,7 @@
             resultComment.textContent = "";
             resultComment.classList.add("hidden");
             recordImageGrid.textContent = "";
+            titleInput.value = "";
             numbersInput.value = "";
             commentInput.value = "";
             photoInput.value = "";
@@ -597,10 +661,24 @@
             img.src = urls[0] || "";
         }
 
-        function openLightbox(title, src, comment) {
+        function isPdfFile(fileName) {
+            return /\.pdf(?:$|[?#])/i.test(String(fileName || ""));
+        }
+
+        function openLightbox(title, src, comment, fileName = src) {
             lightboxTitle.textContent = title;
-            lightboxImage.src = src;
-            lightboxImage.alt = title;
+            const showPdf = isPdfFile(fileName);
+            lightboxImage.classList.toggle("hidden", showPdf);
+            lightboxPdf.classList.toggle("hidden", !showPdf);
+            if (showPdf) {
+                lightboxImage.removeAttribute("src");
+                lightboxImage.alt = "";
+                lightboxPdf.src = src;
+            } else {
+                lightboxPdf.removeAttribute("src");
+                lightboxImage.src = src;
+                lightboxImage.alt = title;
+            }
             lightboxComment.textContent = comment || "";
             lightbox.classList.remove("hidden");
         }
@@ -609,6 +687,7 @@
             lightbox.classList.add("hidden");
             lightboxImage.removeAttribute("src");
             lightboxImage.alt = "";
+            lightboxPdf.removeAttribute("src");
         }
 
         function renderRecordImages(image) {
@@ -634,14 +713,27 @@
                 const frame = document.createElement("div");
                 frame.className = "recordImageFrame";
 
-                const img = document.createElement("img");
                 const urls = recordImageUrls(recordName, entryFile);
-                setImageWithFallback(img, urls);
-                img.alt = `${recordName || image.name} ${entryFile}`;
+                const previewTitle = `${recordName || image.name} ${entryFile}`;
+                let previewElement;
+                if (isPdfFile(entryFile)) {
+                    previewElement = document.createElement("div");
+                    previewElement.className = "pdfFilePreview";
+                    const badge = document.createElement("strong");
+                    badge.textContent = "PDF";
+                    const fileLabel = document.createElement("span");
+                    fileLabel.textContent = entryFile;
+                    previewElement.appendChild(badge);
+                    previewElement.appendChild(fileLabel);
+                } else {
+                    previewElement = document.createElement("img");
+                    setImageWithFallback(previewElement, urls);
+                    previewElement.alt = previewTitle;
+                }
 
                 const recordCommentText = image.comment || "";
 
-                frame.appendChild(img);
+                frame.appendChild(previewElement);
                 button.appendChild(frame);
                 button.addEventListener("click", () => {
                     clearTimeout(recordImageClickTimer);
@@ -649,7 +741,10 @@
                 });
                 button.addEventListener("dblclick", () => {
                     clearTimeout(recordImageClickTimer);
-                    openLightbox(img.alt, img.currentSrc || img.src, recordCommentText);
+                    const previewUrl = isPdfFile(entryFile)
+                        ? urls[0]
+                        : (previewElement.currentSrc || previewElement.src);
+                    openLightbox(previewTitle, previewUrl, recordCommentText, entryFile);
                 });
                 item.appendChild(button);
 
@@ -678,6 +773,7 @@
         async function selectRecordImage(recordImage, entry) {
             const record = {
                 name: recordImage.recordName || modelInput.value.trim() || recordImage.name,
+                title: recordImage.title || recordImage.recordName || modelInput.value.trim() || recordImage.name,
                 numbers: Array.isArray(recordImage.numbers) ? recordImage.numbers : [],
                 comment: typeof recordImage.comment === "string" ? recordImage.comment : "",
                 images: Array.isArray(recordImage.recordImages) ? recordImage.recordImages : []
@@ -702,6 +798,7 @@
             selectCurrentImage({
                 ...selected,
                 recordName: record.name,
+                title: record.title,
                 numbers: record.numbers,
                 recordImages: record.images,
                 comment: record.comment || selected.comment || ""
@@ -718,6 +815,7 @@
             if (image.recordName) {
                 modelInput.value = image.recordName;
             }
+            titleInput.value = image.title || image.recordName || "";
             if (image.numbers) {
                 numbersInput.value = image.numbers.join(", ");
             }
@@ -743,15 +841,17 @@
 
         function showPreview(image) {
             currentImage = image;
-            const recordText = image.recordName ? ` / 登録名: ${image.recordName}` : "";
+            const titleText = image.title ? ` / 名称: ${image.title}` : "";
+            const recordText = image.recordName ? ` / 検索型番: ${image.recordName}` : "";
             const numberText = image.numbers && image.numbers.length ? ` / 登録番号: ${image.numbers.join(", ")}` : "";
-            resultMeta.textContent = `images/${image.name}${recordText}${numberText}`;
+            resultMeta.textContent = `images/${image.name}${titleText}${recordText}${numberText}`;
             resultComment.textContent = image.comment || "";
             resultComment.classList.toggle("hidden", !image.comment);
             commentInput.value = image.comment || "";
             if (image.recordName) {
                 modelInput.value = image.recordName;
             }
+            titleInput.value = image.title || image.recordName || "";
             if (image.numbers) {
                 numbersInput.value = image.numbers.join(", ");
             }
@@ -791,6 +891,13 @@
             return value.split(/[\s,、]+/)
                 .map((number) => number.trim())
                 .filter(Boolean);
+        }
+
+        function validateSelectedFiles(files) {
+            const oversized = files.find((file) => file.size >= githubContentsMaxBytes);
+            if (oversized) {
+                throw new Error(`${oversized.name} は100MB以上のため保存できません。ファイルサイズを小さくしてください。`);
+            }
         }
 
         function modelCandidates(value) {
@@ -849,13 +956,22 @@
                 headers: githubHeaders()
             });
             const text = await response.text();
-            const body = text ? JSON.parse(text) : null;
+            let body = null;
+            if (text) {
+                try {
+                    body = JSON.parse(text);
+                } catch (error) {
+                    body = null;
+                }
+            }
             if (!response.ok) {
-                const message = body && body.message ? body.message : text;
                 if (response.status === 404) {
                     throw new Error(`GitHubリポジトリが見つかりません: ${session.owner}/${session.repo}。GitHub Tokenの権限を確認してください。`);
                 }
-                throw new Error(`GitHub API error ${response.status}: ${message}`);
+                throw new Error(githubErrorMessage(response.status, body, text));
+            }
+            if (body && body.permissions && body.permissions.push === false) {
+                throw new Error("このGitHubアカウントにはリポジトリへの書き込み権限がありません。Repositoryの権限を確認してください。");
             }
             const defaultBranch = body && body.default_branch ? body.default_branch : session.branch;
             session.branch = defaultBranch;
@@ -879,10 +995,16 @@
         async function githubRequest(url, options = {}) {
             const response = await fetch(url, options);
             const text = await response.text();
-            const body = text ? JSON.parse(text) : null;
+            let body = null;
+            if (text) {
+                try {
+                    body = JSON.parse(text);
+                } catch (error) {
+                    body = null;
+                }
+            }
             if (!response.ok) {
-                const message = body && body.message ? body.message : text;
-                throw new Error(`GitHub API error ${response.status}: ${message}`);
+                throw new Error(githubErrorMessage(response.status, body, text));
             }
             return body;
         }
@@ -977,6 +1099,7 @@
             const merged = [];
             records.map((record) => ({
                 name: String(record && record.name || "").trim(),
+                title: String(record && record.title || record && record.displayName || "").trim(),
                 numbers: Array.isArray(record && record.numbers)
                     ? record.numbers.map((number) => String(number).trim()).filter((number) => /^\d{4}$/.test(number))
                     : [],
@@ -994,6 +1117,9 @@
                     const legacyComment = record.images.find((image) => image.comment)?.comment || "";
                     record.comment = legacyComment;
                 }
+                if (!record.title) {
+                    record.title = record.name;
+                }
                 record.images = record.images.map((image) => ({ file: image.file }));
                 const existing = merged.find((item) => item.name.toLowerCase() === record.name.toLowerCase());
                 if (!existing) {
@@ -1002,6 +1128,9 @@
                 }
                 if (!existing.comment && record.comment) {
                     existing.comment = record.comment;
+                }
+                if ((!existing.title || existing.title === existing.name) && record.title) {
+                    existing.title = record.title;
                 }
                 existing.numbers = [...new Set([...existing.numbers, ...record.numbers])];
                 record.images.forEach((image) => {
@@ -1085,6 +1214,24 @@
             return "";
         }
 
+        function currentRecordImagesForSave(record, selectedImage) {
+            const currentImages = Array.isArray(selectedImage.recordImages)
+                ? selectedImage.recordImages.slice(0, 6)
+                    .filter((image) => image && image.file)
+                    .map((image) => ({ file: normalizeImageFilePath(image.file) }))
+                : [];
+            if (!currentImages.length) {
+                return record.images;
+            }
+            const hasEveryExistingImage = record.images.every((existingImage) => (
+                currentImages.some((currentImage) => (
+                    recordImageMatches(record.name, currentImage.file, existingImage.file)
+                        || recordImageMatches(record.name, existingImage.file, currentImage.file)
+                ))
+            ));
+            return hasEveryExistingImage ? currentImages : record.images;
+        }
+
         async function attachCatalogToImage(image) {
             const { catalog } = await loadCatalogFile();
             const record = findRecordByImage(catalog, image.name);
@@ -1095,6 +1242,7 @@
             return {
                 ...image,
                 recordName: record.name,
+                title: record.title || record.name,
                 numbers: record.numbers,
                 recordImages: record.images,
                 comment: recordComment(record) || (item && item.comment ? item.comment : image.comment)
@@ -1174,7 +1322,7 @@
             if (!records.length) {
                 const empty = document.createElement("p");
                 empty.className = "resultMeta";
-                empty.textContent = "登録画像はありません。";
+                empty.textContent = "登録ファイルはありません。";
                 imageList.appendChild(empty);
                 return;
             }
@@ -1186,7 +1334,8 @@
                 const name = document.createElement("p");
                 name.className = "imageListName";
                 const numberText = record.numbers && record.numbers.length ? ` / ${record.numbers.join(", ")}` : "";
-                name.textContent = `${record.name} (${record.images.length}枚)${numberText}`;
+                const titleText = record.title && record.title !== record.name ? ` / ${record.title}` : "";
+                name.textContent = `${record.name}${titleText} (${record.images.length}枚)${numberText}`;
 
                 const selectButton = document.createElement("button");
                 selectButton.className = "secondary";
@@ -1208,13 +1357,13 @@
         }
 
         async function refreshImageList() {
-            setStatus("登録画像一覧を取得中...");
+            setStatus("登録ファイル一覧を取得中...");
             const { catalog } = await loadCatalogFile();
             const records = catalog.records
                 .filter((record) => record.images.length)
                 .sort((a, b) => a.name.localeCompare(b.name, "ja"));
             renderImageList(records);
-            setStatus(`登録画像一覧を表示しました: ${records.length}件`);
+            setStatus(`登録ファイル一覧を表示しました: ${records.length}件`);
         }
 
         async function getRecordImage(record, imageEntry) {
@@ -1233,7 +1382,7 @@
                 setBusy(true);
                 const first = record.images[0];
                 if (!first) {
-                    setStatus("画像が見つかりませんでした。");
+                    setStatus("ファイルが見つかりませんでした。");
                     await refreshImageList();
                     return;
                 }
@@ -1258,6 +1407,7 @@
                 image = {
                     ...image,
                     recordName: record.name,
+                    title: record.title || record.name,
                     numbers: record.numbers,
                     recordImages: record.images,
                     comment: recordComment(record) || image.comment
@@ -1273,7 +1423,7 @@
         }
 
         async function deleteListedRecord(record) {
-            if (!confirm(`${record.name} と登録画像 ${record.images.length}枚を削除しますか？`)) {
+            if (!confirm(`${record.name} と登録ファイル ${record.images.length}件を削除しますか？`)) {
                 return;
             }
 
@@ -1388,6 +1538,7 @@
                     return {
                         ...image,
                         recordName: record.name,
+                        title: record.title || record.name,
                         numbers: record.numbers,
                         recordImages: record.images,
                         comment: recordComment(record) || image.comment
@@ -1418,6 +1569,9 @@
 
         function contentTypeForName(fileName) {
             const extension = fileName.split(".").pop().toLowerCase();
+            if (extension === "pdf") {
+                return "application/pdf";
+            }
             if (extension === "png") {
                 return "image/png";
             }
@@ -1510,21 +1664,44 @@
             });
         });
 
+        photoInput.addEventListener("change", () => {
+            const files = Array.from(photoInput.files);
+            if (!files.length) {
+                setStatus("画像またはPDFファイルを選択してください。");
+                return;
+            }
+            try {
+                validateSelectedFiles(files);
+                const names = files.map((file) => file.name).join(", ");
+                setStatus(`選択しました (${files.length}件): ${names}`);
+            } catch (error) {
+                photoInput.value = "";
+                setStatus(error.message);
+            }
+        });
+
         uploadButton.addEventListener("click", async () => {
             const recordName = modelInput.value.trim();
+            const recordTitle = titleInput.value.trim() || recordName;
             const numberTokens = parseNumberTokens(numbersInput.value);
             const numbers = parseNumbers(numbersInput.value);
             const files = Array.from(photoInput.files);
             if (!recordName) {
-                setStatus("登録名を入力してください。");
+                setStatus("検索型番を入力してください。");
                 return;
             }
             if (!currentImage && !files.length) {
-                setStatus("画像ファイルを選択してください。");
+                setStatus("画像またはPDFファイルを選択してください。");
                 return;
             }
             if (numberTokens.some((number) => !/^\d{4}$/.test(number))) {
                 setStatus("登録番号は4桁数字で入力してください。");
+                return;
+            }
+            try {
+                validateSelectedFiles(files);
+            } catch (error) {
+                setStatus(error.message);
                 return;
             }
 
@@ -1543,6 +1720,7 @@
                     } else {
                         record = {
                             name: currentImage.recordName || recordName,
+                            title: currentImage.title || currentImage.recordName || recordName,
                             numbers: Array.isArray(currentImage.numbers) ? currentImage.numbers : [],
                             comment: currentImage.comment || "",
                             images: [{ file: currentImage.name }]
@@ -1552,62 +1730,62 @@
 
                     const duplicateRecord = findOtherRecordByName(catalog, recordName, record);
                     if (duplicateRecord) {
-                        setStatus("同じ登録名が既にあります。別の登録名を入力してください。");
+                        setStatus("同じ検索型番が既にあります。別の検索型番を入力してください。");
                         return;
                     }
 
                     record.name = recordName;
+                    record.title = recordTitle;
                     record.numbers = numbers;
                     record.comment = comment;
-                    if (Array.isArray(currentImage.recordImages) && currentImage.recordImages.length) {
-                        record.images = currentImage.recordImages.slice(0, 6)
-                            .filter((image) => image && image.file)
-                            .map((image) => ({ file: normalizeImageFilePath(image.file) }));
-                    }
+                    record.images = currentRecordImagesForSave(record, currentImage);
 
-                    let imageEntry = record.images.find((image) => image.file === currentImage.name);
+                    let imageEntry = record.images.find((image) => recordImageMatches(record.name, image.file, currentImage.name));
                     if (!imageEntry) {
                         imageEntry = { file: currentImage.name };
                         record.images.unshift(imageEntry);
                     }
                     previewFileName = imageEntry.file;
 
-                    if (files.length) {
-                        const firstFile = files[0];
-                        const replacementBytes = new Uint8Array(await firstFile.arrayBuffer());
-                        await putImage(imageEntry.file, replacementBytes, currentImage.sha, `Update ${imageEntry.file}`);
-                    }
-
-                    const appendFiles = files.slice(1);
+                    const appendFiles = files;
                     const remaining = 6 - record.images.length;
                     if (appendFiles.length > remaining) {
-                        setStatus(`最大6枚までです。追加画像は先頭${Math.max(remaining, 0)}枚だけ保存します。`);
+                        setStatus(`最大6件までです。追加ファイルは先頭${Math.max(remaining, 0)}件だけ保存します。`);
                     }
                     for (const file of appendFiles.slice(0, Math.max(remaining, 0))) {
                         const fileName = nextCatalogFileName(record.name, record.images, file.name);
                         if (!fileName) {
                             break;
                         }
+                        setStatus(`画像を保存中 (${record.images.length + 1}/6): ${file.name}`);
                         const bytes = new Uint8Array(await file.arrayBuffer());
-                        await uploadImage(fileName, bytes);
+                        try {
+                            await uploadImage(fileName, bytes);
+                        } catch (error) {
+                            throw new Error(`${file.name} の画像保存に失敗しました。${error.message}`);
+                        }
                         record.images.push({ file: fileName });
+                        if (previewFileName === imageEntry.file) {
+                            previewFileName = fileName;
+                        }
                     }
                 } else {
                     record = findRecordByName(catalog, recordName);
                     if (!record) {
-                        record = { name: recordName, numbers: [], comment: "", images: [] };
+                        record = { name: recordName, title: recordTitle, numbers: [], comment: "", images: [] };
                         catalog.records.push(record);
                     }
+                    record.title = recordTitle;
                     record.numbers = numbers.length ? numbers : record.numbers;
                     record.comment = comment;
 
                     const remaining = 6 - record.images.length;
                     if (remaining <= 0) {
-                        setStatus("この登録名には既に6枚の画像が登録されています。");
+                        setStatus("この登録名には既に6件のファイルが登録されています。");
                         return;
                     }
                     if (files.length > remaining) {
-                        setStatus(`最大6枚までです。先頭${remaining}枚だけ保存します。`);
+                        setStatus(`最大6件までです。先頭${remaining}件だけ保存します。`);
                     } else {
                         setStatus(`保存中: ${recordName}`);
                     }
@@ -1616,8 +1794,13 @@
                         if (!fileName) {
                             break;
                         }
+                        setStatus(`画像を保存中 (${record.images.length + 1}/6): ${file.name}`);
                         const bytes = new Uint8Array(await file.arrayBuffer());
-                        await uploadImage(fileName, bytes);
+                        try {
+                            await uploadImage(fileName, bytes);
+                        } catch (error) {
+                            throw new Error(`${file.name} の画像保存に失敗しました。${error.message}`);
+                        }
                         record.images.push({ file: fileName });
                         if (!previewFileName) {
                             previewFileName = fileName;
@@ -1625,7 +1808,12 @@
                     }
                 }
 
-                await saveCatalogFile(catalog, sha);
+                setStatus(`登録情報を保存中: ${record.name}`);
+                try {
+                    await saveCatalogFile(catalog, sha);
+                } catch (error) {
+                    throw new Error(`画像はGitHubへ送信されましたが、登録情報の保存に失敗しました。もう一度「登録を保存」を押してください。${error.message}`);
+                }
                 const image = previewFileName ? await getImage(previewFileName) : null;
                 if (image) {
                     showPreview(await attachCatalogToImage(image));
@@ -1682,7 +1870,7 @@
                 setStatus(`検索中: ${modelNo}`);
                 const image = await findImage(modelNo);
                 if (!image) {
-                    setStatus("画像が見つかりませんでした。");
+                    setStatus("ファイルが見つかりませんでした。");
                     return;
                 }
                 showPreview(image);
@@ -1699,14 +1887,14 @@
                 return;
             }
 
-            const nextValue = prompt("変更後の画像ファイル名を入力してください。", currentImage.name.replace(/\.[^.]+$/, ""));
+            const nextValue = prompt("変更後のファイル名を入力してください。", currentImage.name.replace(/\.[^.]+$/, ""));
             if (nextValue === null) {
                 return;
             }
             const extension = currentImage.name.match(/\.[a-z0-9]+$/i)?.[0] || ".jpg";
             const nextName = normalizeFileName(nextValue, extension);
             if (!nextName) {
-                setStatus("変更後の画像ファイル名を入力してください。");
+                setStatus("変更後のファイル名を入力してください。");
                 return;
             }
             if (nextName === currentImage.name) {
@@ -1766,7 +1954,7 @@
                     imageForDelete = await getImage(currentImage.name);
                 }
                 if (!imageForDelete || !imageForDelete.sha) {
-                    setStatus("削除対象の画像データが見つかりませんでした。");
+                    setStatus("削除対象のファイルが見つかりませんでした。");
                     return;
                 }
                 await deleteImage(imageForDelete.name, imageForDelete.sha);
@@ -1789,6 +1977,7 @@
                     await selectRecordImage({
                         name: nextEntry.file,
                         recordName: nextRecord.name,
+                        title: nextRecord.title || nextRecord.name,
                         numbers: nextRecord.numbers,
                         recordImages: nextRecord.images,
                         comment: recordComment(nextRecord)
@@ -1797,7 +1986,7 @@
                     clearPreview();
                 }
                 await refreshImageList();
-                setStatus("選択中の画像データを削除しました。");
+                setStatus("選択中のファイルを削除しました。");
             } catch (error) {
                 setStatus(error.message);
             } finally {
