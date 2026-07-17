@@ -637,7 +637,6 @@
                 } else {
                     previewElement = document.createElement("img");
                     previewElement.alt = previewTitle;
-                    previewElement.src = src;
                 }
 
                 const commentText = record.comment || image.comment || readComment(comments, image.file);
@@ -647,6 +646,15 @@
                 button.addEventListener("click", () => openLightbox(previewTitle, src, commentText, image.file));
                 item.appendChild(button);
                 imageGrid.appendChild(item);
+                if (!isPdfFile(image.file)) {
+                    previewElement.onerror = () => {
+                        item.remove();
+                        if (!imageGrid.querySelector(".imageItem")) {
+                            showMessage("表示データはありません", "", searchedModel);
+                        }
+                    };
+                    previewElement.src = src;
+                }
             });
             message.classList.add("isHidden");
             result.classList.add("isVisible");
