@@ -1439,6 +1439,29 @@
             return null;
         }
 
+        async function getImageMetadataForDelete(recordName, fileName) {
+            const repoBase = `https://api.github.com/repos/${session.owner}/${session.repo}`;
+            const branchPath = encodeURIComponent(session.branch);
+            const tree = await githubRequest(`${repoBase}/git/trees/${branchPath}?recursive=1`, {
+                headers: githubHeaders()
+            });
+            const files = Array.isArray(tree && tree.tree) ? tree.tree : [];
+            for (const candidate of recordImageFileCandidates(recordName, fileName)) {
+                const repositoryPath = `images/${candidate}`;
+                const item = files.find((entry) => entry.type === "blob" && entry.path === repositoryPath);
+                if (item && item.sha) {
+                    return {
+                        name: candidate,
+                        sha: item.sha,
+                        bytes: null,
+                        mimeType: contentTypeForName(candidate),
+                        downloadUrl: imageUrl(candidate)
+                    };
+                }
+            }
+            return null;
+        }
+
         async function selectListedRecord(record) {
             try {
                 ensureGitHubSession();
@@ -1502,7 +1525,7 @@
                 }
                 setStatus(`削除中: ${target.name}`);
                 for (const image of target.images) {
-                    const imageFile = await getRecordImage(target, image);
+                    const imageFile = await getImageMetadataForDelete(target.name, image.file);
                     if (imageFile) {
                         await deleteImage(imageFile.name, imageFile.sha);
                     }
@@ -2275,13 +2298,12 @@
             try {
                 ensureGitHubSession();
                 setBusy(true);
-                setStatus(`GitHubから削除中: images/${targetFile}`);
-                let imageForDelete = null;
-                for (const candidate of recordImageFileCandidates(recordName, targetFile)) {
-                    imageForDelete = await getImage(candidate);
-                    if (imageForDelete) {
-                        break;
-                    }
+                setStatus(`削除対象を確認中: images/${targetFile}`);
+                let imageForDelete;
+                try {
+                    imageForDelete = await getImageMetadataForDelete(recordName, targetFile);
+                } catch (error) {
+                    throw new Error(`削除対象確認エラー: ${error.message}`);
                 }
                 if (!imageForDelete || !imageForDelete.sha) {
                     setStatus("削除対象のファイルが見つかりませんでした。");
