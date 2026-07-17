@@ -2,6 +2,7 @@
   "records": [
     {
       "name": "CT37-X0N-57S10DG",
+      "title": "CT37-X0N-57S10DG",
       "numbers": [
         "3685"
       ],
@@ -14,6 +15,7 @@
     },
     {
       "name": "CT37-X0N-58S10DG",
+      "title": "CT37-X0N-58S10DG",
       "numbers": [
         "3694"
       ],
@@ -26,6 +28,7 @@
     },
     {
       "name": "1960GHDV-2USB-A",
+      "title": "1960GHDV-2USB-A",
       "numbers": [
         "3499",
         "3500",
@@ -96,6 +99,9 @@
       "images": [
         {
           "file": "1960GHDV-2USB-A/1960GHDV-2USB-A_1.jpg"
+        },
+        {
+          "file": "1960GHDV-2USB-A/1960GHDV-2USB-A_1.png"
         }
       ]
     }
